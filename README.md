@@ -63,9 +63,10 @@ https://your-ngrok-subdomain.ngrok-free.app/api/twilio/voice
 ## Vercel deployment
 
 1. Deploy the repo to Vercel.
-2. Set `BASE_URL` in Vercel to your production domain, for example `https://your-app.vercel.app`.
-3. Set `REPRESENTATIVE_NUMBER` if you want the transfer option to dial a real number.
-4. In Twilio, configure the voice webhook URL as:
+2. Do not set `BASE_URL` to your local `ngrok` URL in Vercel. On Vercel, the app uses the request host automatically.
+3. Optionally set `BASE_URL` in Vercel only if you want to force a specific production domain.
+4. Set `REPRESENTATIVE_NUMBER` if you want the transfer option to dial a real number.
+5. In Twilio, configure the voice webhook URL as:
 
 ```text
 https://your-app.vercel.app/api/twilio/voice

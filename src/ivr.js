@@ -85,16 +85,22 @@ function escapeXml(value) {
 }
 
 function buildBaseUrl(req, envBaseUrl) {
+  const isVercelRuntime = String(process.env.VERCEL || "").toLowerCase() === "1";
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
+  const forwardedHost = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:3000")
+    .split(",")[0]
+    .trim();
+
+  if (isVercelRuntime && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
   const configured = String(envBaseUrl || "").trim().replace(/\/$/, "");
   if (configured) {
     return configured;
   }
 
-  const protoHeader = String(req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
-  const hostHeader = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:3000")
-    .split(",")[0]
-    .trim();
-  return `${protoHeader}://${hostHeader}`;
+  return `${forwardedProto}://${forwardedHost}`;
 }
 
 function twiml(parts) {
