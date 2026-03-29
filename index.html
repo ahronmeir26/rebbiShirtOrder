@@ -61,19 +61,6 @@
         gap: 4px;
       }
 
-      .env-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: var(--accent-soft);
-        color: var(--accent-deep);
-        border: 1px solid var(--line);
-        font-size: 0.88rem;
-        font-weight: 600;
-      }
-
       .logo {
         display: block;
         width: min(220px, 42vw);
@@ -296,7 +283,6 @@
             <p class="brand-kicker">Order Desk</p>
             <p class="brand-title">Phone Orders Dashboard</p>
           </div>
-          <div class="env-badge" id="env-badge">Checking environment…</div>
         </div>
         <div>
           <h1>Incoming Orders</h1>
@@ -340,21 +326,7 @@
       const statusEl = document.getElementById("status");
       const refreshButton = document.getElementById("refresh-button");
       const autoRefresh = document.getElementById("auto-refresh");
-      const envBadge = document.getElementById("env-badge");
-
       let timer = null;
-
-      function renderEnvironment() {
-        const host = window.location.hostname;
-        const isDev =
-          host === "localhost" ||
-          host === "127.0.0.1" ||
-          host.includes("ngrok");
-
-        envBadge.textContent = isDev
-          ? `Using Dev Server: ${window.location.host}`
-          : `Using Production: ${window.location.host}`;
-      }
 
       function formatTime(value) {
         if (!value) return "Unknown";
@@ -460,7 +432,6 @@
       refreshButton.addEventListener("click", loadOrders);
       autoRefresh.addEventListener("change", setAutoRefresh);
 
-      renderEnvironment();
       loadOrders();
       setAutoRefresh();
     </script>

@@ -342,8 +342,13 @@ function normalizePostAddSelection(input) {
   });
 }
 
+function isDevServerBaseUrl(baseUrl) {
+  return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") || baseUrl.includes("ngrok");
+}
+
 function mainMenuResponse(baseUrl) {
   return twiml([
+    ...(isDevServerBaseUrl(baseUrl) ? [say("Using dev server.")] : []),
     gather(baseUrl, {
       action: "/api/twilio/menu",
       numDigits: 1,
