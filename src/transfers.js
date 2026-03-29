@@ -54,6 +54,60 @@ function isTransferEligibleOrder(order) {
   return status === "unfulfilled" || status === "unshipped" || status === "";
 }
 
+async function fetchGraphqlJson(storeDomain, apiVersion, accessToken, query, variables) {
+  const response = await fetch(`https://${storeDomain}/admin/api/${apiVersion}/graphql.json`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": accessToken
+    },
+    body: JSON.stringify({ query, variables })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Shopify GraphQL request failed with ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  const payload = await response.json();
+  if (Array.isArray(payload.errors) && payload.errors.length) {
+    throw new Error(`Shopify GraphQL error: ${payload.errors[0].message}`);
+  }
+
+  return payload.data || {};
+}
+
+async function fetchOrderDisplayStatuses(storeDomain, apiVersion, accessToken, orderIds) {
+  const statuses = new Map();
+  const query = `
+    query OrderStatuses($ids: [ID!]!) {
+      nodes(ids: $ids) {
+        ... on Order {
+          id
+          legacyResourceId
+          displayFulfillmentStatus
+        }
+      }
+    }
+  `;
+
+  for (let index = 0; index < orderIds.length; index += 100) {
+    const batch = orderIds.slice(index, index + 100).map((id) => `gid://shopify/Order/${id}`);
+    const data = await fetchGraphqlJson(storeDomain, apiVersion, accessToken, query, { ids: batch });
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+
+    for (const node of nodes) {
+      if (!node || !node.legacyResourceId) {
+        continue;
+      }
+
+      statuses.set(String(node.legacyResourceId), String(node.displayFulfillmentStatus || "").trim().toUpperCase());
+    }
+  }
+
+  return statuses;
+}
+
 async function resolveShopifyAccessToken() {
   const { storeDomain, accessToken, clientId, clientSecret } = shopifyConfig();
 
@@ -179,7 +233,22 @@ async function fetchShopifyOrders() {
     ].join(",")
   );
 
-  const orders = (await fetchAllOrders(url, accessToken)).filter(isTransferEligibleOrder);
+  const restOrders = (await fetchAllOrders(url, accessToken)).filter(isTransferEligibleOrder);
+  const displayStatuses = await fetchOrderDisplayStatuses(
+    storeDomain,
+    apiVersion,
+    accessToken,
+    restOrders.map((order) => order.id)
+  );
+
+  const orders = restOrders.filter((order) => {
+    const graphqlStatus = displayStatuses.get(String(order.id));
+    if (!graphqlStatus) {
+      return true;
+    }
+
+    return graphqlStatus === "UNFULFILLED";
+  });
 
   return {
     configured: true,
@@ -190,7 +259,11 @@ async function fetchShopifyOrders() {
       email: order.email,
       phone: order.phone,
       customerName: [order.customer?.first_name, order.customer?.last_name].filter(Boolean).join(" "),
-      fulfillmentStatus: order.display_fulfillment_status || order.fulfillment_status || "unfulfilled",
+      fulfillmentStatus:
+        displayStatuses.get(String(order.id))?.toLowerCase().replace(/_/g, " ") ||
+        order.display_fulfillment_status ||
+        order.fulfillment_status ||
+        "unfulfilled",
       financialStatus: order.financial_status || "unknown",
       shippingName: order.shipping_address?.name || "",
       city: order.shipping_address?.city || "",

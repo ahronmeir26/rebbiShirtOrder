@@ -51,6 +51,7 @@ Required scopes:
 Implementation note:
 
 - Even when querying `fulfillment_status=unfulfilled`, Shopify responses can still include orders whose display status is `partial`. Filter those out server-side if the UI should show only fully unfulfilled orders.
+- Shopify GraphQL `Order.displayFulfillmentStatus` is a more reliable final filter than the REST order fulfillment fields for excluding admin-side `IN_PROGRESS` orders such as `#330572`.
 
 ## Pagination
 
