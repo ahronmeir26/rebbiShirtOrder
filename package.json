@@ -1,0 +1,18 @@
+{
+  "name": "rebbi-ordering-app",
+  "version": "1.0.0",
+  "description": "Twilio webhook IVR app for taking phone orders",
+  "main": "src/local-server.js",
+  "scripts": {
+    "dev": "node src/local-server.js",
+    "start": "node src/local-server.js",
+    "check": "node --check src/ivr.js && node --check src/local-server.js && node --check api/health.js && node --check api/orders.js && node --check api/twilio/[...route].js"
+  },
+  "keywords": [
+    "twilio",
+    "ivr",
+    "voice",
+    "orders"
+  ],
+  "license": "MIT"
+}

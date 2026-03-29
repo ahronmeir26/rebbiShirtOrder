@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rebbi Shirt Orders</title>
+    <style>
+      :root {
+        --bg: #f5f8ff;
+        --panel: #ffffff;
+        --panel-alt: #eef4ff;
+        --ink: #314156;
+        --muted: #66758a;
+        --line: #c8d7ee;
+        --accent: #6d9ee8;
+        --accent-deep: #24478f;
+        --accent-soft: #dfe9ff;
+        --good: #24478f;
+        --shadow: 0 22px 60px rgba(36, 71, 143, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+
+      .shell {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 32px 20px 56px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 22px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--panel);
+        box-shadow: 0 10px 30px rgba(36, 71, 143, 0.06);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 20px;
+        flex-wrap: wrap;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand-copy {
+        display: grid;
+        gap: 4px;
+      }
+
+      .logo {
+        display: block;
+        width: min(220px, 42vw);
+        height: auto;
+      }
+
+      .brand-kicker {
+        margin: 0;
+        font-size: 0.78rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--accent-deep);
+      }
+
+      .brand-title {
+        margin: 0;
+        font-size: 1.5rem;
+        line-height: 1;
+        font-weight: 650;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(1.8rem, 4vw, 3rem);
+        line-height: 1;
+        font-weight: 700;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 1.02rem;
+      }
+
+      .stats {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        margin-top: 22px;
+      }
+
+      .stat {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px;
+      }
+
+      .stat-label {
+        color: var(--muted);
+        font-size: 0.84rem;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        margin: 24px 0 18px;
+        flex-wrap: wrap;
+      }
+
+      .toolbar-right {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        background: var(--accent-deep);
+        color: white;
+        padding: 11px 16px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+
+      .status {
+        font-size: 0.95rem;
+        color: var(--muted);
+      }
+
+      .orders {
+        display: grid;
+        gap: 16px;
+      }
+
+      .empty {
+        border: 1px dashed var(--line);
+        background: var(--panel);
+        border-radius: 22px;
+        padding: 40px 24px;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      .order {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 22px;
+        padding: 22px;
+        box-shadow: 0 10px 30px rgba(36, 71, 143, 0.06);
+      }
+
+      .order-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+      }
+
+      .order-id {
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .order-time {
+        color: var(--muted);
+      }
+
+      .caller {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        font-size: 0.95rem;
+      }
+
+      .items {
+        display: grid;
+        gap: 12px;
+      }
+
+      .item {
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: var(--panel-alt);
+        border: 1px solid rgba(109, 158, 232, 0.18);
+      }
+
+      .item-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+
+      .item-title {
+        font-weight: 700;
+        font-size: 1.05rem;
+      }
+
+      .qty {
+        color: var(--good);
+        font-weight: 700;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.9rem;
+        background: rgba(255, 255, 255, 0.75);
+      }
+
+      @media (max-width: 720px) {
+        .shell {
+          padding: 18px 14px 40px;
+        }
+
+        .hero,
+        .order {
+          border-radius: 22px;
+          padding: 18px;
+        }
+
+        .logo {
+          width: min(170px, 58vw);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="brand">
+          <img class="logo" src="/logo-aistone.png" alt="A.I. Stone" />
+          <div class="brand-copy">
+            <p class="brand-kicker">Order Desk</p>
+            <p class="brand-title">Phone Orders Dashboard</p>
+          </div>
+        </div>
+        <div>
+          <h1>Incoming Orders</h1>
+          <p>Review callers, quantities, and shirt details in one place.</p>
+        </div>
+        <section class="stats">
+          <article class="stat">
+            <div class="stat-label">Orders</div>
+            <div class="stat-value" id="order-count">0</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Shirts</div>
+            <div class="stat-value" id="shirt-count">0</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Last Refresh</div>
+            <div class="stat-value" id="last-refresh" style="font-size:1.15rem">Never</div>
+          </article>
+        </section>
+      </section>
+
+      <section class="toolbar">
+        <div class="status" id="status">Loading orders…</div>
+        <div class="toolbar-right">
+          <label class="status">
+            <input type="checkbox" id="auto-refresh" checked />
+            Auto refresh
+          </label>
+          <button class="secondary" id="refresh-button">Refresh now</button>
+        </div>
+      </section>
+
+      <section class="orders" id="orders"></section>
+    </main>
+
+    <script>
+      const ordersEl = document.getElementById("orders");
+      const orderCountEl = document.getElementById("order-count");
+      const shirtCountEl = document.getElementById("shirt-count");
+      const lastRefreshEl = document.getElementById("last-refresh");
+      const statusEl = document.getElementById("status");
+      const refreshButton = document.getElementById("refresh-button");
+      const autoRefresh = document.getElementById("auto-refresh");
+
+      let timer = null;
+
+      function formatTime(value) {
+        if (!value) return "Unknown";
+        const date = new Date(value);
+        return new Intl.DateTimeFormat(undefined, {
+          dateStyle: "medium",
+          timeStyle: "short"
+        }).format(date);
+      }
+
+      function totalShirts(orders) {
+        return orders.reduce((sum, order) => {
+          const perOrder = Array.isArray(order.items)
+            ? order.items.reduce((inner, item) => inner + Number(item.quantity || 0), 0)
+            : Number(order.totalQuantity || 0);
+          return sum + perOrder;
+        }, 0);
+      }
+
+      function renderEmpty() {
+        ordersEl.innerHTML = '<article class="empty">No orders yet. When callers place orders, they will appear here.</article>';
+      }
+
+      function chip(label, value) {
+        if (value === undefined || value === null || value === "") return "";
+        return `<span class="chip">${label}: ${value}</span>`;
+      }
+
+      function renderOrders(orders) {
+        if (!orders.length) {
+          renderEmpty();
+          return;
+        }
+
+        ordersEl.innerHTML = orders
+          .slice()
+          .reverse()
+          .map((order) => {
+            const items = Array.isArray(order.items) ? order.items : [];
+            return `
+              <article class="order">
+                <div class="order-head">
+                  <div>
+                    <div class="order-id">${order.id || "Order"}</div>
+                    <div class="order-time">${formatTime(order.createdAt)}</div>
+                  </div>
+                  <div class="caller">${order.caller || "Unknown caller"}</div>
+                </div>
+                <section class="items">
+                  ${items
+                    .map(
+                      (item) => `
+                        <article class="item">
+                          <div class="item-top">
+                            <div class="item-title">${item.category || ""} ${item.style || ""} twill shirt</div>
+                            <div class="qty">Qty ${item.quantity || 0}</div>
+                          </div>
+                          <div class="chips">
+                            ${chip("Size", item.size)}
+                            ${chip("Sleeve", item.sleeve)}
+                            ${chip("Fit", item.fit)}
+                            ${chip("Pocket", item.pocket)}
+                            ${chip("Cuff", item.cuff)}
+                            ${chip("Collar", item.collar)}
+                          </div>
+                        </article>
+                      `
+                    )
+                    .join("")}
+                </section>
+              </article>
+            `;
+          })
+          .join("");
+      }
+
+      async function loadOrders() {
+        try {
+          statusEl.textContent = "Loading orders…";
+          const response = await fetch("/api/orders", { cache: "no-store" });
+          if (!response.ok) throw new Error(`Request failed with ${response.status}`);
+          const orders = await response.json();
+          orderCountEl.textContent = String(orders.length);
+          shirtCountEl.textContent = String(totalShirts(orders));
+          lastRefreshEl.textContent = new Date().toLocaleTimeString();
+          statusEl.textContent = orders.length ? "Orders loaded." : "No orders yet.";
+          renderOrders(orders);
+        } catch (error) {
+          statusEl.textContent = `Could not load orders: ${error.message}`;
+          if (!ordersEl.innerHTML) {
+            renderEmpty();
+          }
+        }
+      }
+
+      function setAutoRefresh() {
+        if (timer) clearInterval(timer);
+        if (autoRefresh.checked) {
+          timer = setInterval(loadOrders, 15000);
+        }
+      }
+
+      refreshButton.addEventListener("click", loadOrders);
+      autoRefresh.addEventListener("change", setAutoRefresh);
+
+      loadOrders();
+      setAutoRefresh();
+    </script>
+  </body>
+</html>

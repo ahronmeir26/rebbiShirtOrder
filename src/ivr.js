@@ -1,0 +1,1098 @@
+const fs = require("fs");
+const path = require("path");
+
+const dataDir = path.join(__dirname, "..", "data");
+const ordersFile = path.join(dataDir, "orders.json");
+const dashboardFile = path.join(__dirname, "..", "index.html");
+const logoFile = path.join(__dirname, "..", "logo-aistone.png");
+const DEFAULT_VOICE = process.env.TTS_VOICE || "Polly.Joanna-Neural";
+const DEFAULT_LANGUAGE = process.env.TTS_LANGUAGE || "en-US";
+
+const categories = {
+  1: { id: "mens", name: "mens" },
+  2: { id: "boys", name: "boys" }
+};
+
+const styles = {
+  1: { id: "standard", name: "standard", collar: "standard" },
+  2: { id: "chassidish", name: "chassidish", collar: "chassidish" }
+};
+
+const sizes = {
+  1: { id: "14", name: "14" },
+  2: { id: "14.5", name: "14 and a half" },
+  3: { id: "15", name: "15" },
+  4: { id: "15.5", name: "15 and a half" },
+  5: { id: "16", name: "16" },
+  6: { id: "16.5", name: "16 and a half" },
+  7: { id: "17", name: "17" },
+  8: { id: "17.5", name: "17 and a half" },
+  9: { id: "18", name: "18" },
+  10: { id: "18.5", name: "18 and a half" },
+  11: { id: "19", name: "19" },
+  12: { id: "19.5", name: "19 and a half" },
+  13: { id: "20", name: "20" }
+};
+
+const sleeves = {
+  30: { id: "30", name: "30" },
+  31: { id: "31", name: "31" },
+  32: { id: "32", name: "32" },
+  33: { id: "33", name: "33" },
+  34: { id: "34", name: "34" },
+  35: { id: "35", name: "35" },
+  36: { id: "36", name: "36" },
+  37: { id: "37", name: "37" },
+  0: { id: "short-sleeve", name: "short sleeve" }
+};
+
+const fits = {
+  1: { id: "classic", name: "classic" },
+  2: { id: "slim", name: "slim" },
+  3: { id: "extra-slim", name: "extra slim" },
+  4: { id: "super-slim", name: "super slim" }
+};
+
+const pockets = {
+  1: { id: "yes", name: "with pocket", value: true },
+  2: { id: "no", name: "without pocket", value: false }
+};
+
+const cuffs = {
+  1: { id: "button", name: "button cuff" },
+  2: { id: "french", name: "french cuff" }
+};
+
+const sessions = new Map();
+
+function ensureDataStore() {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  if (!fs.existsSync(ordersFile)) {
+    fs.writeFileSync(ordersFile, "[]\n", "utf8");
+  }
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function buildBaseUrl(req, envBaseUrl) {
+  const configured = String(envBaseUrl || "").trim().replace(/\/$/, "");
+  if (configured) {
+    return configured;
+  }
+
+  const protoHeader = String(req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
+  const hostHeader = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:3000")
+    .split(",")[0]
+    .trim();
+  return `${protoHeader}://${hostHeader}`;
+}
+
+function twiml(parts) {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${parts.join("")}</Response>`;
+}
+
+function say(text, voice = DEFAULT_VOICE, language = DEFAULT_LANGUAGE) {
+  return `<Say voice="${voice}" language="${language}">${escapeXml(text)}</Say>`;
+}
+
+function gather(baseUrl, { action, prompt, numDigits, hints, finishOnKey = "#", timeout, input = "dtmf speech" }) {
+  const digitAttr = numDigits ? ` numDigits="${numDigits}"` : "";
+  const hintsAttr = hints ? ` hints="${escapeXml(hints)}"` : "";
+  const finishAttr = finishOnKey ? ` finishOnKey="${escapeXml(finishOnKey)}"` : "";
+  const timeoutAttr = timeout ? ` timeout="${timeout}"` : "";
+  const actionUrl = `${baseUrl}${action}`;
+
+  return [
+    `<Gather input="${escapeXml(input)}" method="POST" action="${escapeXml(actionUrl)}"${digitAttr}${finishAttr}${hintsAttr}${timeoutAttr}>`,
+    say(prompt),
+    "</Gather>"
+  ].join("");
+}
+
+function redirect(baseUrl, routePath) {
+  return `<Redirect method="POST">${escapeXml(`${baseUrl}${routePath}`)}</Redirect>`;
+}
+
+function hangup() {
+  return "<Hangup/>";
+}
+
+function parseFormBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 1_000_000) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+      }
+    });
+
+    req.on("end", () => {
+      const params = new URLSearchParams(body);
+      const data = {};
+      for (const [key, value] of params.entries()) {
+        data[key] = value;
+      }
+      resolve(data);
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function getSession(callSid) {
+  const key = callSid || `local-${Date.now()}`;
+
+  if (!sessions.has(key)) {
+    sessions.set(key, {
+      createdAt: new Date().toISOString(),
+      cart: []
+    });
+  }
+
+  return { key, session: sessions.get(key) };
+}
+
+function formatCartLine(item, index) {
+  return `Item ${index + 1}, quantity ${item.quantity}, ${item.category} ${item.style} shirt, size ${item.size}, sleeve ${item.sleeve}, ${item.fit}, ${item.pocket}, ${item.cuff}, fabric twill.`;
+}
+
+function formatCartForSpeech(cart) {
+  if (cart.length === 0) {
+    return "Your cart is empty.";
+  }
+
+  return cart.map(formatCartLine).join(" ");
+}
+
+function cartQuantity(cart) {
+  return cart.reduce((sum, item) => sum + item.quantity, 0);
+}
+
+function persistOrder(orderRecord) {
+  ensureDataStore();
+  const existing = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
+  existing.push(orderRecord);
+  fs.writeFileSync(ordersFile, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
+}
+
+function json(res, statusCode, payload) {
+  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(payload, null, 2));
+}
+
+function xml(res, statusCode, payload) {
+  res.writeHead(statusCode, { "Content-Type": "text/xml; charset=utf-8" });
+  res.end(payload);
+}
+
+function html(res, statusCode, payload) {
+  res.writeHead(statusCode, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(payload);
+}
+
+function file(res, statusCode, contentType, payload) {
+  res.writeHead(statusCode, { "Content-Type": contentType });
+  res.end(payload);
+}
+
+function notFound(res) {
+  json(res, 404, { error: "Not found" });
+}
+
+function normalizeMainSelection(input) {
+  const text = String(input || "").trim().toLowerCase();
+  const mapping = {
+    "1": "1",
+    one: "1",
+    order: "1",
+    shirts: "1",
+    "place an order": "1",
+    "2": "2",
+    two: "2",
+    cart: "2",
+    review: "2",
+    "hear cart": "2",
+    "3": "3",
+    three: "3",
+    hours: "3",
+    "store hours": "3",
+    "4": "4",
+    four: "4",
+    representative: "4",
+    agent: "4"
+  };
+  return mapping[text] || text;
+}
+
+function normalizeSimpleSelection(input, synonyms) {
+  const text = String(input || "").trim().toLowerCase();
+  return synonyms[text] || text;
+}
+
+function normalizeCategorySelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    mens: "1",
+    men: "1",
+    "2": "2",
+    two: "2",
+    boys: "2",
+    boy: "2"
+  });
+}
+
+function normalizeStyleSelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    standard: "1",
+    spread: "1",
+    cutaway: "1",
+    "2": "2",
+    two: "2",
+    chassidish: "2",
+    pointy: "2",
+    "pointy collar": "2"
+  });
+}
+
+function normalizeFitSelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    classic: "1",
+    "2": "2",
+    two: "2",
+    slim: "2",
+    "3": "3",
+    three: "3",
+    "extra slim": "3",
+    "4": "4",
+    four: "4",
+    "super slim": "4"
+  });
+}
+
+function normalizePocketSelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    yes: "1",
+    pocket: "1",
+    "with pocket": "1",
+    "2": "2",
+    two: "2",
+    no: "2",
+    "without pocket": "2"
+  });
+}
+
+function normalizeCuffSelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    button: "1",
+    "button cuff": "1",
+    "2": "2",
+    two: "2",
+    french: "2",
+    "french cuff": "2"
+  });
+}
+
+function normalizePostAddSelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    add: "1",
+    "add another": "1",
+    "2": "2",
+    two: "2",
+    cart: "2",
+    review: "2",
+    "hear cart": "2",
+    "3": "3",
+    three: "3",
+    confirm: "3",
+    place: "3",
+    "place order": "3",
+    "4": "4",
+    four: "4",
+    cancel: "4"
+  });
+}
+
+function mainMenuResponse(baseUrl) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/menu",
+      numDigits: 1,
+      hints: "order shirts, cart, hours, representative",
+      prompt:
+        "Welcome to Rebbi shirt ordering. Press 1 to order shirts. Press 2 to hear what is in your cart. Press 3 for store hours. Press 4 to speak with a representative."
+    }),
+    say("We did not receive a valid selection."),
+    redirect(baseUrl, "/api/twilio/voice")
+  ]);
+}
+
+function categoryMenuResponse(baseUrl) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/category",
+      numDigits: 1,
+      hints: "mens, boys",
+      prompt: "Press 1 for mens. Press 2 for boys."
+    }),
+    say("We did not receive a category selection."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function styleMenuResponse(baseUrl, categoryName) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/style",
+      numDigits: 1,
+      hints: "standard, chassidish",
+      prompt: `You selected ${categoryName}. Press 1 for standard shirts. Press 2 for chassidish shirts. Press star to go back.`
+    }),
+    say("We did not receive a style selection."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function sizeMenuResponse(baseUrl) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/size",
+      finishOnKey: "#",
+      timeout: 8,
+      input: "dtmf",
+      hints: "14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18, 18.5, 19, 19.5, 20",
+      prompt:
+        "Enter neck size between 14 and 20. For a half size, enter the size without the decimal, like 145 for 14 and a half. Then press pound, or press star to go back."
+    }),
+    say("We did not receive a size."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function sleeveMenuResponse(baseUrl, sizeName) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/sleeve",
+      numDigits: 2,
+      hints: "30, 31, 32, 33, 34, 35, 36, 37, short sleeve",
+      prompt: `You selected size ${sizeName}. Enter sleeve size between 30 and 37, or enter 0 for short sleeves. Press star to go back.`
+    }),
+    say("We did not receive a sleeve selection."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function fitMenuResponse(baseUrl, sleeveName) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/fit",
+      numDigits: 1,
+      hints: "classic, slim, extra slim, super slim",
+      prompt: `You selected sleeve ${sleeveName}. Press 1 for classic. Press 2 for slim. Press 3 for extra slim. Press 4 for super slim. Press star to go back.`
+    }),
+    say("We did not receive a fit selection."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function pocketMenuResponse(baseUrl) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/pocket",
+      numDigits: 1,
+      hints: "yes, no, pocket",
+      prompt: "Press 1 for with pocket. Press 2 for without pocket. Press star to go back."
+    }),
+    say("We did not receive a pocket selection."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function cuffMenuResponse(baseUrl, sleeveName) {
+  if (sleeveName === "short sleeve") {
+    return twiml([
+      gather(baseUrl, {
+        action: "/api/twilio/order/quantity",
+        numDigits: 2,
+        finishOnKey: "#",
+        prompt: "Short sleeve was selected, so cuff is set to short sleeve automatically. Enter the quantity, then press pound, or press star to go back."
+      }),
+      say("We did not receive a quantity."),
+      redirect(baseUrl, "/api/twilio/order/current")
+    ]);
+  }
+
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/cuff",
+      numDigits: 1,
+      hints: "button, french",
+      prompt: "Press 1 for button cuff. Press 2 for french cuff. Press star to go back."
+    }),
+    say("We did not receive a cuff selection."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function quantityMenuResponse(baseUrl, itemDescription) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/quantity",
+      numDigits: 2,
+      finishOnKey: "#",
+      prompt: `You selected ${itemDescription}. Enter the quantity, then press pound, or press star to go back.`
+    }),
+    say("We did not receive a quantity."),
+    redirect(baseUrl, "/api/twilio/order/current")
+  ]);
+}
+
+function postAddMenuResponse(baseUrl, session) {
+  const totalUnits = cartQuantity(session.cart);
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/next",
+      numDigits: 1,
+      hints: "add another, hear cart, confirm, cancel",
+      prompt: `${formatCartForSpeech(session.cart)} You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to hear your cart again. Press 3 to place this order. Press 4 to cancel. Press star to go back.`
+    }),
+    say("We did not receive a valid selection."),
+    redirect(baseUrl, "/api/twilio/menu")
+  ]);
+}
+
+function invalidSelectionResponse(baseUrl, message, fallbackPath) {
+  return twiml([say(message), redirect(baseUrl, fallbackPath)]);
+}
+
+function normalizeSizeInput(input) {
+  const text = String(input || "").trim().toLowerCase();
+  const compact = text.replace(/[^\d.]/g, "");
+  const mapping = {
+    "14": "14",
+    "145": "14.5",
+    "14.5": "14.5",
+    "15": "15",
+    "155": "15.5",
+    "15.5": "15.5",
+    "16": "16",
+    "165": "16.5",
+    "16.5": "16.5",
+    "17": "17",
+    "175": "17.5",
+    "17.5": "17.5",
+    "18": "18",
+    "185": "18.5",
+    "18.5": "18.5",
+    "19": "19",
+    "195": "19.5",
+    "19.5": "19.5",
+    "20": "20"
+  };
+  return mapping[compact] || "";
+}
+
+function describePendingItem(item) {
+  return `a ${item.category.name} ${item.style.name} twill shirt, size ${item.size.name}, sleeve ${item.sleeve.name}, ${item.fit.name}, ${item.pocket.name}, ${item.cuff.name}`;
+}
+
+function currentOrderMenuResponse(baseUrl, session) {
+  const item = session.pendingItem || {};
+
+  if (!item.category) {
+    return categoryMenuResponse(baseUrl);
+  }
+
+  if (!item.style) {
+    return styleMenuResponse(baseUrl, item.category.name);
+  }
+
+  if (!item.size) {
+    return sizeMenuResponse(baseUrl);
+  }
+
+  if (!item.sleeve) {
+    return sleeveMenuResponse(baseUrl, item.size.name);
+  }
+
+  if (!item.fit) {
+    return fitMenuResponse(baseUrl, item.sleeve.name);
+  }
+
+  if (!item.pocket) {
+    return pocketMenuResponse(baseUrl);
+  }
+
+  if (!item.cuff && item.sleeve.id !== "short-sleeve") {
+    return cuffMenuResponse(baseUrl, item.sleeve.name);
+  }
+
+  if (item.cuff) {
+    return quantityMenuResponse(baseUrl, describePendingItem(item));
+  }
+
+  return categoryMenuResponse(baseUrl);
+}
+
+function goToPreviousOrderMenu(baseUrl, session) {
+  if (!session.pendingItem) {
+    return categoryMenuResponse(baseUrl);
+  }
+
+  const item = session.pendingItem;
+
+  if (item.cuff) {
+    delete item.cuff;
+    if (item.sleeve && item.sleeve.id === "short-sleeve") {
+      return pocketMenuResponse(baseUrl);
+    }
+    return cuffMenuResponse(baseUrl, item.sleeve.name);
+  }
+
+  if (item.pocket) {
+    delete item.pocket;
+    return pocketMenuResponse(baseUrl);
+  }
+
+  if (item.fit) {
+    delete item.fit;
+    return fitMenuResponse(baseUrl, item.sleeve.name);
+  }
+
+  if (item.sleeve) {
+    delete item.sleeve;
+    return sleeveMenuResponse(baseUrl, item.size.name);
+  }
+
+  if (item.size) {
+    delete item.size;
+    return sizeMenuResponse(baseUrl);
+  }
+
+  if (item.style) {
+    delete item.style;
+    return styleMenuResponse(baseUrl, item.category.name);
+  }
+
+  if (item.category) {
+    delete session.pendingItem;
+    return categoryMenuResponse(baseUrl);
+  }
+
+  return categoryMenuResponse(baseUrl);
+}
+
+async function handleVoiceWebhook(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  getSession(form.CallSid);
+  xml(res, 200, mainMenuResponse(baseUrl));
+}
+
+async function handleMainMenu(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+  const selection = normalizeMainSelection(form.Digits || form.SpeechResult);
+
+  if (selection === "1") {
+    xml(res, 200, categoryMenuResponse(baseUrl));
+    return;
+  }
+
+  if (selection === "2") {
+    xml(res, 200, twiml([say(formatCartForSpeech(session.cart)), redirect(baseUrl, "/api/twilio/voice")]));
+    return;
+  }
+
+  if (selection === "3") {
+    xml(
+      res,
+      200,
+      twiml([
+        say("Our ordering desk is open Sunday through Thursday from 9 A M to 6 P M, and Friday from 9 A M to 1 P M."),
+        redirect(baseUrl, "/api/twilio/voice")
+      ])
+    );
+    return;
+  }
+
+  if (selection === "4") {
+    xml(
+      res,
+      200,
+      twiml([
+        say("Please hold while we connect you."),
+        `<Dial>${escapeXml(process.env.REPRESENTATIVE_NUMBER || "+15551234567")}</Dial>`
+      ])
+    );
+    return;
+  }
+
+  xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid menu option.", "/api/twilio/voice"));
+}
+
+async function handleOrderStart(_req, res, baseUrl) {
+  xml(res, 200, categoryMenuResponse(baseUrl));
+}
+
+async function handleCurrentOrderMenu(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+  xml(res, 200, currentOrderMenuResponse(baseUrl, session));
+}
+
+async function handlePreviousOrderMenu(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+  xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+}
+
+function wantsPreviousMenu(form) {
+  return String(form.Digits || "").trim() === "*";
+}
+
+async function restartOrderFlow(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+  delete session.pendingItem;
+  xml(res, 200, categoryMenuResponse(baseUrl));
+}
+
+async function handleCategorySelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+  const selection = normalizeCategorySelection(form.Digits || form.SpeechResult);
+  const category = categories[selection];
+
+  if (!category) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid category selection.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.pendingItem = { category };
+  xml(res, 200, styleMenuResponse(baseUrl, category.name));
+}
+
+async function handleStyleSelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    return;
+  }
+
+  const selection = normalizeStyleSelection(form.Digits || form.SpeechResult);
+  const style = styles[selection];
+
+  if (!session.pendingItem || !session.pendingItem.category) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    return;
+  }
+
+  if (!style) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid style selection.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.pendingItem.style = style;
+  xml(res, 200, sizeMenuResponse(baseUrl));
+}
+
+async function handleSizeSelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    return;
+  }
+
+  const sizeName = normalizeSizeInput(form.Digits || form.SpeechResult);
+  const size = Object.values(sizes).find((entry) => entry.id === sizeName);
+
+  if (!session.pendingItem || !session.pendingItem.category || !session.pendingItem.style) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    return;
+  }
+
+  if (!size) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid size. Choose a size from 14 through 20, including half sizes.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.pendingItem.size = size;
+  xml(res, 200, sleeveMenuResponse(baseUrl, size.name));
+}
+
+async function handleSleeveSelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    return;
+  }
+
+  const sleeveInput = String(form.Digits || form.SpeechResult || "").replace(/[^\d]/g, "");
+  const sleeve = sleeves[sleeveInput];
+
+  if (!session.pendingItem || !session.pendingItem.size) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    return;
+  }
+
+  if (!sleeve) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid sleeve selection.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.pendingItem.sleeve = sleeve;
+  xml(res, 200, fitMenuResponse(baseUrl, sleeve.name));
+}
+
+async function handleFitSelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    return;
+  }
+
+  const selection = normalizeFitSelection(form.Digits || form.SpeechResult);
+  const fit = fits[selection];
+
+  if (!session.pendingItem || !session.pendingItem.sleeve) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    return;
+  }
+
+  if (!fit) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid fit selection.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.pendingItem.fit = fit;
+  xml(res, 200, pocketMenuResponse(baseUrl));
+}
+
+async function handlePocketSelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    return;
+  }
+
+  const selection = normalizePocketSelection(form.Digits || form.SpeechResult);
+  const pocket = pockets[selection];
+
+  if (!session.pendingItem || !session.pendingItem.fit) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    return;
+  }
+
+  if (!pocket) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid pocket selection.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.pendingItem.pocket = pocket;
+
+  if (session.pendingItem.sleeve && session.pendingItem.sleeve.id === "short-sleeve") {
+    session.pendingItem.cuff = { id: "short-sleeve", name: "short sleeve" };
+    xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name));
+    return;
+  }
+
+  xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name));
+}
+
+async function handleCuffSelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    return;
+  }
+
+  const selection = normalizeCuffSelection(form.Digits || form.SpeechResult);
+  const cuff = cuffs[selection];
+
+  if (!session.pendingItem || !session.pendingItem.pocket) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    return;
+  }
+
+  if (!cuff) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid cuff selection.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.pendingItem.cuff = cuff;
+  xml(res, 200, quantityMenuResponse(baseUrl, describePendingItem(session.pendingItem)));
+}
+
+async function handleQuantitySelection(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    return;
+  }
+
+  const pendingItem = session.pendingItem;
+
+  if (
+    !pendingItem ||
+    !pendingItem.category ||
+    !pendingItem.style ||
+    !pendingItem.size ||
+    !pendingItem.sleeve ||
+    !pendingItem.fit ||
+    !pendingItem.pocket ||
+    !pendingItem.cuff
+  ) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Your shirt selection expired. Let us start again.", "/api/twilio/order/start"));
+    return;
+  }
+
+  const rawQuantity = String(form.Digits || form.SpeechResult || "").replace(/[^\d]/g, "");
+  const quantity = Number(rawQuantity);
+
+  if (!quantity || quantity < 1 || quantity > 99) {
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Please enter a quantity between 1 and 99.", "/api/twilio/order/start"));
+    return;
+  }
+
+  session.cart.push({
+    category: pendingItem.category.name,
+    style: pendingItem.style.name,
+    collar: pendingItem.style.collar,
+    fabric: "twill",
+    size: pendingItem.size.id,
+    sleeve: pendingItem.sleeve.name,
+    fit: pendingItem.fit.name,
+    pocket: pendingItem.pocket.name,
+    cuff: pendingItem.cuff.name,
+    quantity
+  });
+  delete session.pendingItem;
+
+  xml(res, 200, postAddMenuResponse(baseUrl, session));
+}
+
+async function handlePostAddMenu(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { key, session } = getSession(form.CallSid);
+
+  if (wantsPreviousMenu(form)) {
+    if (session.cart.length === 0) {
+      xml(res, 200, categoryMenuResponse(baseUrl));
+      return;
+    }
+
+    const lastItem = session.cart.pop();
+    session.pendingItem = {
+      category: { id: lastItem.category, name: lastItem.category },
+      style: { id: lastItem.style, name: lastItem.style, collar: lastItem.collar },
+      size: { id: lastItem.size, name: lastItem.size },
+      sleeve: { id: lastItem.sleeve === "short sleeve" ? "short-sleeve" : lastItem.sleeve, name: lastItem.sleeve },
+      fit: { id: lastItem.fit, name: lastItem.fit },
+      pocket: {
+        id: lastItem.pocket === "with pocket" ? "yes" : "no",
+        name: lastItem.pocket,
+        value: lastItem.pocket === "with pocket"
+      },
+      cuff: { id: lastItem.cuff, name: lastItem.cuff }
+    };
+    xml(res, 200, quantityMenuResponse(baseUrl, describePendingItem(session.pendingItem)));
+    return;
+  }
+
+  const selection = normalizePostAddSelection(form.Digits || form.SpeechResult);
+
+  if (selection === "1") {
+    xml(res, 200, categoryMenuResponse(baseUrl));
+    return;
+  }
+
+  if (selection === "2") {
+    xml(res, 200, twiml([say(formatCartForSpeech(session.cart)), redirect(baseUrl, "/api/twilio/order/next")]));
+    return;
+  }
+
+  if (selection === "3") {
+    const orderRecord = {
+      id: `${key}-${Date.now()}`,
+      callSid: key,
+      caller: form.From || "unknown",
+      createdAt: new Date().toISOString(),
+      items: session.cart,
+      totalQuantity: cartQuantity(session.cart)
+    };
+
+    try {
+      persistOrder(orderRecord);
+    } catch (_error) {
+      // File persistence is best-effort so the flow can still run on Vercel.
+    }
+
+    sessions.delete(key);
+    xml(
+      res,
+      200,
+      twiml([
+        say("Thank you. Your shirt order has been placed. A team member will follow up if needed."),
+        hangup()
+      ])
+    );
+    return;
+  }
+
+  if (selection === "4") {
+    sessions.delete(key);
+    xml(
+      res,
+      200,
+      twiml([
+        say("Your cart has been cleared and the order has been canceled."),
+        hangup()
+      ])
+    );
+    return;
+  }
+
+  xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid option.", "/api/twilio/menu"));
+}
+
+function routeRequest(req, res, pathname, baseUrl) {
+  if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
+    html(res, 200, fs.readFileSync(dashboardFile, "utf8"));
+    return Promise.resolve();
+  }
+
+  if (req.method === "GET" && pathname === "/logo-aistone.png") {
+    file(res, 200, "image/png", fs.readFileSync(logoFile));
+    return Promise.resolve();
+  }
+
+  if (req.method === "GET" && (pathname === "/health" || pathname === "/api/health")) {
+    json(res, 200, { status: "ok" });
+    return Promise.resolve();
+  }
+
+  if (req.method === "GET" && (pathname === "/orders" || pathname === "/api/orders")) {
+    try {
+      ensureDataStore();
+      const orders = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
+      json(res, 200, orders);
+    } catch (_error) {
+      json(res, 200, []);
+    }
+    return Promise.resolve();
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/voice") {
+    return handleVoiceWebhook(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/menu") {
+    return handleMainMenu(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/start") {
+    return restartOrderFlow(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/current") {
+    return handleCurrentOrderMenu(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/back") {
+    return handlePreviousOrderMenu(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/category") {
+    return handleCategorySelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/style") {
+    return handleStyleSelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/size") {
+    return handleSizeSelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/sleeve") {
+    return handleSleeveSelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/fit") {
+    return handleFitSelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/pocket") {
+    return handlePocketSelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/cuff") {
+    return handleCuffSelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/quantity") {
+    return handleQuantitySelection(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/next") {
+    return handlePostAddMenu(req, res, baseUrl);
+  }
+
+  notFound(res);
+  return Promise.resolve();
+}
+
+async function handleHttpRequest(req, res, options = {}) {
+  try {
+    const pathname = new URL(req.url, "http://localhost").pathname;
+    const baseUrl = buildBaseUrl(req, options.baseUrl || process.env.BASE_URL);
+    await routeRequest(req, res, pathname, baseUrl);
+  } catch (error) {
+    json(res, 500, {
+      error: "Internal server error",
+      details: error.message
+    });
+  }
+}
+
+module.exports = {
+  handleHttpRequest,
+  ensureDataStore
+};
