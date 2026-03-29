@@ -103,6 +103,12 @@
         box-shadow: 0 2px 8px rgba(22, 38, 70, 0.05);
       }
 
+      .ghost-button.primary {
+        background: var(--navy);
+        border-color: var(--navy);
+        color: #fff;
+      }
+
       .ghost-button:hover {
         border-color: rgba(36, 71, 143, 0.34);
       }
@@ -150,6 +156,8 @@
 
       .order {
         position: relative;
+        display: flex;
+        flex-direction: column;
         background: var(--card);
         border: 1px solid rgba(36, 71, 143, 0.12);
         border-top: 5px solid var(--success);
@@ -164,6 +172,9 @@
 
       .order-body {
         padding: 18px 18px 16px;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
       }
 
       .order-head {
@@ -186,7 +197,7 @@
 
       .cube {
         color: var(--muted);
-        font-size: 0.92rem;
+        font-size: 0.86rem;
       }
 
       .status-pill {
@@ -216,7 +227,7 @@
       }
 
       .customer-icon {
-        font-size: 0.92rem;
+        font-size: 0.82rem;
       }
 
       .items {
@@ -224,6 +235,7 @@
         font-size: 0.98rem;
         line-height: 1.5;
         color: #333d4d;
+        min-height: 86px;
       }
 
       .items p {
@@ -244,9 +256,15 @@
         font-weight: 700;
       }
 
+      .source {
+        color: var(--muted);
+        font-weight: 600;
+      }
+
       .time {
         color: var(--muted);
         font-weight: 600;
+        margin-left: auto;
       }
 
       .action-row {
@@ -280,6 +298,7 @@
       }
 
       .order-footer {
+        margin-top: auto;
         padding: 16px 18px 18px;
         border-top: 1px solid var(--line);
         background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(220,230,247,0.08) 100%);
@@ -309,6 +328,16 @@
         color: var(--navy-deep);
         font-size: 0.8rem;
         font-weight: 600;
+      }
+
+      .tag.location {
+        background: rgba(63, 138, 106, 0.1);
+        color: var(--success-deep);
+      }
+
+      .tag.channel {
+        background: rgba(246, 196, 88, 0.18);
+        color: #745200;
       }
 
       .sku-list {
@@ -366,9 +395,9 @@
         </div>
       </div>
 
-      <div class="top-actions">
-        <button class="ghost-button" type="button">⇄ Transfers</button>
-        <button class="ghost-button" id="refresh" type="button">↻ Refresh</button>
+        <div class="top-actions">
+        <button class="ghost-button" type="button">Transfers</button>
+        <button class="ghost-button primary" id="refresh" type="button">Refresh</button>
       </div>
     </header>
 
@@ -410,6 +439,16 @@
           hour: "numeric",
           minute: "2-digit"
         }).format(new Date(value));
+      }
+
+      function formatMoney(amount, currency) {
+        const numeric = Number(amount || 0);
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: currency || "USD",
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }).format(numeric);
       }
 
       function formatLastRefresh() {
@@ -465,12 +504,13 @@
             const itemSummary = summarizeItems(order.items || []);
             const amount = Number(order.totalPrice || 0);
             const location = [order.city, order.province].filter(Boolean).join(", ");
+            const sourceName = String(order.sourceName || "").replace(/_/g, " ");
 
             return `
               <article class="order${urgent ? " urgent" : ""}">
                 <div class="order-body">
                   <div class="order-head">
-                    <h2 class="order-number"><span class="cube">◫</span>${escapeHtml(order.name || "Order")}</h2>
+                    <h2 class="order-number"><span class="cube">◻</span>${escapeHtml(order.name || "Order")}</h2>
                     <span class="status-pill${urgent ? " urgent" : ""}">${urgent ? "Getting Urgent" : "New Order"}</span>
                   </div>
 
@@ -481,7 +521,8 @@
                   </div>
 
                   <div class="meta-row">
-                    <span class="price">${amount > 0 ? `$ ${amount.toFixed(2)}` : "0"}</span>
+                    <span class="price">${escapeHtml(formatMoney(amount, order.currency))}</span>
+                    ${sourceName ? `<span class="source">${escapeHtml(sourceName)}</span>` : ""}
                     <span class="time">${escapeHtml(formatTime(order.createdAt))}</span>
                   </div>
 
@@ -495,7 +536,8 @@
                   ${order.note ? `<p class="foot-note">${escapeHtml(order.note)}</p>` : `<p class="foot-note">${escapeHtml(location || "No note on this order.")}</p>`}
                   <div class="aux">
                     ${order.tags ? String(order.tags).split(",").map((tag) => `<span class="tag">${escapeHtml(tag.trim())}</span>`).join("") : ""}
-                    ${location ? `<span class="tag">${escapeHtml(location)}</span>` : ""}
+                    ${location ? `<span class="tag location">${escapeHtml(location)}</span>` : ""}
+                    ${sourceName ? `<span class="tag channel">${escapeHtml(sourceName)}</span>` : ""}
                     <span class="tag">${escapeHtml(order.fulfillmentStatus || "unfulfilled")}</span>
                   </div>
                   <div class="sku-list">
