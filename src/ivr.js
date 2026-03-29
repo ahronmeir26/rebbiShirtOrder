@@ -202,7 +202,7 @@ function skuSizeSegment(size, sleeve) {
 
 function buildSku(item) {
   const prefix = `${skuCategoryCode(item.category)}T${skuCollarCode(item.style)}${skuFitCode(item.fit)}`;
-  const segments = [];
+  const segments = ["DP"];
 
   if (item.style === "chassidish") {
     segments.push("ROL");

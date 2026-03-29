@@ -373,7 +373,7 @@
         };
         const fitCode = fitMap[item.fit] || "C";
         const prefix = `${categoryCode}T${collarCode}${fitCode}`;
-        const parts = [];
+        const parts = ["DP"];
 
         if (item.style === "chassidish") parts.push("ROL");
         if (item.cuff === "french cuff") parts.push("FC");
