@@ -48,6 +48,10 @@ Required scopes:
 - `read_orders`
 - `read_all_orders` if the app must see orders older than Shopify's default recent-order window
 
+Implementation note:
+
+- Even when querying `fulfillment_status=unfulfilled`, Shopify responses can still include orders whose display status is `partial`. Filter those out server-side if the UI should show only fully unfulfilled orders.
+
 ## Pagination
 
 1. Read the `Link` header from Shopify.

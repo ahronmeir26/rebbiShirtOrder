@@ -46,6 +46,14 @@ function extractNextLink(linkHeader) {
   return urlMatch ? urlMatch[1] : "";
 }
 
+function isTransferEligibleOrder(order) {
+  const status = String(order.display_fulfillment_status || order.fulfillment_status || "")
+    .trim()
+    .toLowerCase();
+
+  return status === "unfulfilled" || status === "unshipped" || status === "";
+}
+
 async function resolveShopifyAccessToken() {
   const { storeDomain, accessToken, clientId, clientSecret } = shopifyConfig();
 
@@ -171,7 +179,7 @@ async function fetchShopifyOrders() {
     ].join(",")
   );
 
-  const orders = await fetchAllOrders(url, accessToken);
+  const orders = (await fetchAllOrders(url, accessToken)).filter(isTransferEligibleOrder);
 
   return {
     configured: true,
