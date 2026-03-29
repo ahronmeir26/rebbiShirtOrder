@@ -171,6 +171,56 @@ function getSession(callSid) {
   return { key, session: sessions.get(key) };
 }
 
+function skuCategoryCode(category) {
+  return category === "mens" ? "M" : "B";
+}
+
+function skuCollarCode(style) {
+  return style === "chassidish" ? "P" : "S";
+}
+
+function skuFitCode(fit) {
+  const mapping = {
+    classic: "C",
+    slim: "S",
+    "extra slim": "E",
+    "super slim": "X"
+  };
+  return mapping[fit] || "C";
+}
+
+function skuSizeSegment(size, sleeve) {
+  const isHalf = String(size).includes(".5");
+  const whole = String(size).replace(".5", "");
+
+  if (sleeve === "short sleeve") {
+    return `${whole}${isHalf ? "H" : ""}`;
+  }
+
+  return `${whole}${isHalf ? "H" : ""}${sleeve}`;
+}
+
+function buildSku(item) {
+  const prefix = `${skuCategoryCode(item.category)}T${skuCollarCode(item.style)}${skuFitCode(item.fit)}`;
+  const segments = [];
+
+  if (item.style === "chassidish") {
+    segments.push("ROL");
+  }
+  if (item.cuff === "french cuff") {
+    segments.push("FC");
+  }
+  if (item.pocket === "with pocket") {
+    segments.push("PKT");
+  }
+  if (item.sleeve === "short sleeve") {
+    segments.push("SS");
+  }
+
+  segments.push(skuSizeSegment(item.size, item.sleeve));
+  return [prefix, ...segments].join("-");
+}
+
 function formatCartLine(item, index) {
   return `Item ${index + 1}. Quantity ${item.quantity}, ${item.category} ${item.style} shirt, size ${item.size}, sleeve ${item.sleeve}, ${item.fit}, ${item.pocket}, ${item.cuff}, fabric twill.`;
 }
@@ -912,7 +962,16 @@ async function handleQuantitySelection(req, res, baseUrl) {
     fit: pendingItem.fit.name,
     pocket: pendingItem.pocket.name,
     cuff: pendingItem.cuff.name,
-    quantity
+    quantity,
+    sku: buildSku({
+      category: pendingItem.category.name,
+      style: pendingItem.style.name,
+      size: pendingItem.size.id,
+      sleeve: pendingItem.sleeve.name,
+      fit: pendingItem.fit.name,
+      pocket: pendingItem.pocket.name,
+      cuff: pendingItem.cuff.name
+    })
   });
   delete session.pendingItem;
 

@@ -355,6 +355,35 @@
         return `<span class="chip">${label}: ${value}</span>`;
       }
 
+      function buildSku(item) {
+        const categoryCode = item.category === "mens" ? "M" : "B";
+        const collarCode = item.style === "chassidish" ? "P" : "S";
+        const fitMap = {
+          classic: "C",
+          slim: "S",
+          "extra slim": "E",
+          "super slim": "X"
+        };
+        const fitCode = fitMap[item.fit] || "C";
+        const prefix = `${categoryCode}T${collarCode}${fitCode}`;
+        const parts = [];
+
+        if (item.style === "chassidish") parts.push("ROL");
+        if (item.cuff === "french cuff") parts.push("FC");
+        if (item.pocket === "with pocket") parts.push("PKT");
+        if (item.sleeve === "short sleeve") parts.push("SS");
+
+        const isHalf = String(item.size).includes(".5");
+        const whole = String(item.size).replace(".5", "");
+        const sizeSegment =
+          item.sleeve === "short sleeve"
+            ? `${whole}${isHalf ? "H" : ""}`
+            : `${whole}${isHalf ? "H" : ""}${item.sleeve}`;
+
+        parts.push(sizeSegment);
+        return [prefix, ...parts].join("-");
+      }
+
       function renderOrders(orders) {
         if (!orders.length) {
           renderEmpty();
@@ -385,6 +414,7 @@
                             <div class="qty">Qty ${item.quantity || 0}</div>
                           </div>
                           <div class="chips">
+                            ${chip("SKU", item.sku || buildSku(item))}
                             ${chip("Size", item.size)}
                             ${chip("Sleeve", item.sleeve)}
                             ${chip("Fit", item.fit)}
