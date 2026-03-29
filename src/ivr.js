@@ -531,8 +531,8 @@ function quantityMenuResponse(baseUrl, itemDescription) {
     gather(baseUrl, {
       action: "/api/twilio/order/quantity",
       input: "dtmf",
-      numDigits: 2,
       finishOnKey: "#",
+      timeout: 3,
       prompt: `You selected ${itemDescription}. Enter the quantity, then press pound, or press star to go back.`
     }),
     say("We did not receive a quantity."),
@@ -958,7 +958,14 @@ async function handleQuantitySelection(req, res, baseUrl) {
   const quantity = Number(rawQuantity);
 
   if (!quantity || quantity < 1 || quantity > 99) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Please enter a quantity between 1 and 99.", "/api/twilio/order/start"));
+    xml(
+      res,
+      200,
+      twiml([
+        say("Please enter a quantity between 1 and 99."),
+        redirect(baseUrl, "/api/twilio/order/current")
+      ])
+    );
     return;
   }
 
