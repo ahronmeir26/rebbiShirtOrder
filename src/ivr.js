@@ -23,8 +23,7 @@ const collars = {
   1: { id: "spread", name: "spread", skuCode: "S" },
   2: { id: "cutaway", name: "cutaway", skuCode: "C" },
   3: { id: "extra-cutaway", name: "extra cutaway", skuCode: "V" },
-  4: { id: "button", name: "button", skuCode: "B" },
-  5: { id: "pointy", name: "pointy", skuCode: "P" }
+  4: { id: "button", name: "button", skuCode: "B" }
 };
 
 const sizes = {
@@ -431,10 +430,7 @@ function normalizeCollarSelection(input) {
     "extra cutaway": "3",
     "4": "4",
     four: "4",
-    button: "4",
-    "5": "5",
-    five: "5",
-    pointy: "5"
+    button: "4"
   });
 }
 
@@ -574,8 +570,8 @@ function collarMenuResponse(baseUrl) {
       action: "/api/twilio/order/collar",
       input: "dtmf",
       numDigits: 1,
-      hints: "spread, cutaway, extra cutaway, button, pointy",
-      prompt: "Press 1 for spread. Press 2 for cutaway. Press 3 for extra cutaway. Press 4 for button. Press 5 for pointy. Press star to go back."
+      hints: "spread, cutaway, extra cutaway, button",
+      prompt: "Press 1 for spread. Press 2 for cutaway. Press 3 for extra cutaway. Press 4 for button. Press star to go back."
     }),
     say("We did not receive a collar selection."),
     redirect(baseUrl, "/api/twilio/order/current")
