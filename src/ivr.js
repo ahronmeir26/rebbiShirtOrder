@@ -252,6 +252,20 @@ function buildSku(item) {
   return [prefix, ...segments].join("-");
 }
 
+function normalizeStoredItem(item) {
+  const normalized = { ...item };
+
+  if (normalized.collar === "standard") {
+    normalized.collar = "spread";
+  }
+
+  if (!normalized.sku) {
+    normalized.sku = buildSku(normalized);
+  }
+
+  return normalized;
+}
+
 function formatCartLine(item, index) {
   return `Item ${index + 1}. Quantity ${item.quantity}, ${item.category} ${item.style} shirt, size ${item.size}, sleeve ${item.sleeve}, ${item.fit}, ${item.pocket}, ${item.cuff}, fabric twill.`;
 }
@@ -1204,7 +1218,10 @@ function routeRequest(req, res, pathname, baseUrl) {
   if (req.method === "GET" && (pathname === "/orders" || pathname === "/api/orders")) {
     try {
       ensureDataStore();
-      const orders = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
+      const orders = JSON.parse(fs.readFileSync(ordersFile, "utf8")).map((order) => ({
+        ...order,
+        items: Array.isArray(order.items) ? order.items.map(normalizeStoredItem) : []
+      }));
       json(res, 200, orders);
     } catch (_error) {
       json(res, 200, []);
