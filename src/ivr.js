@@ -401,6 +401,7 @@ function mainMenuResponse(baseUrl) {
     ...(isDevServerBaseUrl(baseUrl) ? [say("Using dev server.")] : []),
     gather(baseUrl, {
       action: "/api/twilio/menu",
+      input: "dtmf",
       numDigits: 1,
       hints: "order shirts, cart, hours, representative",
       prompt:
@@ -415,6 +416,7 @@ function categoryMenuResponse(baseUrl) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/category",
+      input: "dtmf",
       numDigits: 1,
       hints: "mens, boys",
       prompt: "Press 1 for mens. Press 2 for boys."
@@ -428,6 +430,7 @@ function styleMenuResponse(baseUrl, categoryName) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/style",
+      input: "dtmf",
       numDigits: 1,
       hints: "standard, chassidish",
       prompt: `You selected ${categoryName}. Press 1 for standard shirts. Press 2 for chassidish shirts. Press star to go back.`
@@ -457,6 +460,7 @@ function sleeveMenuResponse(baseUrl, sizeName) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/sleeve",
+      input: "dtmf",
       numDigits: 2,
       hints: "30, 31, 32, 33, 34, 35, 36, 37, short sleeve",
       prompt: `You selected size ${sizeName}. Enter sleeve size between 30 and 37, or enter 0 for short sleeves. Press star to go back.`
@@ -470,6 +474,7 @@ function fitMenuResponse(baseUrl, sleeveName) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/fit",
+      input: "dtmf",
       numDigits: 1,
       hints: "classic, slim, extra slim, super slim",
       prompt: `You selected sleeve ${sleeveName}. Press 1 for classic. Press 2 for slim. Press 3 for extra slim. Press 4 for super slim. Press star to go back.`
@@ -483,6 +488,7 @@ function pocketMenuResponse(baseUrl) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/pocket",
+      input: "dtmf",
       numDigits: 1,
       hints: "yes, no, pocket",
       prompt: "Press 1 for with pocket. Press 2 for without pocket. Press star to go back."
@@ -497,6 +503,7 @@ function cuffMenuResponse(baseUrl, sleeveName) {
     return twiml([
       gather(baseUrl, {
         action: "/api/twilio/order/quantity",
+        input: "dtmf",
         numDigits: 2,
         finishOnKey: "#",
         prompt: "Short sleeve was selected, so cuff is set to short sleeve automatically. Enter the quantity, then press pound, or press star to go back."
@@ -509,6 +516,7 @@ function cuffMenuResponse(baseUrl, sleeveName) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/cuff",
+      input: "dtmf",
       numDigits: 1,
       hints: "button, french",
       prompt: "Press 1 for button cuff. Press 2 for french cuff. Press star to go back."
@@ -522,6 +530,7 @@ function quantityMenuResponse(baseUrl, itemDescription) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/quantity",
+      input: "dtmf",
       numDigits: 2,
       finishOnKey: "#",
       prompt: `You selected ${itemDescription}. Enter the quantity, then press pound, or press star to go back.`
@@ -536,6 +545,7 @@ function postAddMenuResponse(baseUrl, session) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/next",
+      input: "dtmf",
       numDigits: 1,
       hints: "add another, hear cart, confirm, cancel",
       prompt: `${formatCartForSpeech(session.cart)} You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to hear your cart again. Press 3 to place this order. Press 4 to cancel. Press star to go back.`
