@@ -179,6 +179,22 @@ function getSession(callSid) {
   return { key, session: sessions.get(key) };
 }
 
+function encodePendingItem(item) {
+  return Buffer.from(JSON.stringify(item), "utf8").toString("base64url");
+}
+
+function decodePendingItem(encoded) {
+  if (!encoded) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+  } catch (_error) {
+    return null;
+  }
+}
+
 function skuCategoryCode(category) {
   return category === "mens" ? "M" : "B";
 }
@@ -547,19 +563,9 @@ function pocketMenuResponse(baseUrl) {
   ]);
 }
 
-function cuffMenuResponse(baseUrl, sleeveName) {
+function cuffMenuResponse(baseUrl, sleeveName, pendingItem) {
   if (sleeveName === "short sleeve") {
-    return twiml([
-      gather(baseUrl, {
-        action: "/api/twilio/order/quantity",
-        input: "dtmf",
-        finishOnKey: "#",
-        timeout: 3,
-        prompt: "Enter the quantity, then press pound, or press star to go back."
-      }),
-      say("We did not receive a quantity."),
-      redirect(baseUrl, "/api/twilio/order/current")
-    ]);
+    return quantityMenuResponse(baseUrl, describePendingItem(pendingItem), pendingItem);
   }
 
   return twiml([
@@ -575,10 +581,11 @@ function cuffMenuResponse(baseUrl, sleeveName) {
   ]);
 }
 
-function quantityMenuResponse(baseUrl, itemDescription) {
+function quantityMenuResponse(baseUrl, itemDescription, pendingItem) {
+  const encodedState = encodePendingItem(pendingItem);
   return twiml([
     gather(baseUrl, {
-      action: "/api/twilio/order/quantity",
+      action: `/api/twilio/order/quantity?state=${encodedState}`,
       input: "dtmf",
       finishOnKey: "#",
       timeout: 3,
@@ -671,11 +678,11 @@ function currentOrderMenuResponse(baseUrl, session) {
   }
 
   if (!item.cuff && item.sleeve.id !== "short-sleeve") {
-    return cuffMenuResponse(baseUrl, item.sleeve.name);
+    return cuffMenuResponse(baseUrl, item.sleeve.name, item);
   }
 
   if (item.cuff) {
-    return quantityMenuResponse(baseUrl, describePendingItem(item));
+    return quantityMenuResponse(baseUrl, describePendingItem(item), item);
   }
 
   return categoryMenuResponse(baseUrl);
@@ -991,11 +998,11 @@ async function handlePocketSelection(req, res, baseUrl) {
 
   if (session.pendingItem.sleeve && session.pendingItem.sleeve.id === "short-sleeve") {
     session.pendingItem.cuff = { id: "short-sleeve", name: "short sleeve" };
-    xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name));
+    xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem));
     return;
   }
 
-  xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name));
+  xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem));
 }
 
 async function handleCuffSelection(req, res, baseUrl) {
@@ -1021,19 +1028,20 @@ async function handleCuffSelection(req, res, baseUrl) {
   }
 
   session.pendingItem.cuff = cuff;
-  xml(res, 200, quantityMenuResponse(baseUrl, describePendingItem(session.pendingItem)));
+  xml(res, 200, quantityMenuResponse(baseUrl, describePendingItem(session.pendingItem), session.pendingItem));
 }
 
 async function handleQuantitySelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { session } = getSession(form.CallSid);
+  const stateParam = new URL(req.url, "http://localhost").searchParams.get("state");
 
   if (wantsPreviousMenu(form)) {
     xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
     return;
   }
 
-  const pendingItem = session.pendingItem;
+  const pendingItem = session.pendingItem || decodePendingItem(stateParam);
 
   if (
     !pendingItem ||
@@ -1117,7 +1125,7 @@ async function handlePostAddMenu(req, res, baseUrl) {
       },
       cuff: { id: lastItem.cuff, name: lastItem.cuff }
     };
-    xml(res, 200, quantityMenuResponse(baseUrl, describePendingItem(session.pendingItem)));
+    xml(res, 200, quantityMenuResponse(baseUrl, describePendingItem(session.pendingItem), session.pendingItem));
     return;
   }
 
