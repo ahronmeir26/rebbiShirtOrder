@@ -789,7 +789,7 @@ async function handleMainMenu(req, res, baseUrl) {
     return;
   }
 
-  xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid menu option.", "/api/twilio/voice"));
+  xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/voice"));
 }
 
 async function handleOrderStart(_req, res, baseUrl) {
@@ -826,7 +826,7 @@ async function handleCategorySelection(req, res, baseUrl) {
   const category = categories[selection];
 
   if (!category) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid category selection.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -847,12 +847,12 @@ async function handleStyleSelection(req, res, baseUrl) {
   const style = styles[selection];
 
   if (!session.pendingItem || !session.pendingItem.category) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
   if (!style) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid style selection.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -881,12 +881,12 @@ async function handleCollarSelection(req, res, baseUrl) {
   const collar = collars[selection];
 
   if (!session.pendingItem || !session.pendingItem.style) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
   if (!collar) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid collar selection.", "/api/twilio/order/current"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -907,12 +907,12 @@ async function handleSizeSelection(req, res, baseUrl) {
   const size = Object.values(sizes).find((entry) => entry.id === sizeName);
 
   if (!session.pendingItem || !session.pendingItem.category || !session.pendingItem.style || !session.pendingItem.collar) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
   if (!size) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid size. Choose a size from 14 through 20, including half sizes.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -933,12 +933,12 @@ async function handleSleeveSelection(req, res, baseUrl) {
   const sleeve = sleeves[sleeveInput];
 
   if (!session.pendingItem || !session.pendingItem.size) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
   if (!sleeve) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid sleeve selection.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -959,12 +959,12 @@ async function handleFitSelection(req, res, baseUrl) {
   const fit = fits[selection];
 
   if (!session.pendingItem || !session.pendingItem.sleeve) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
   if (!fit) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid fit selection.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -985,12 +985,12 @@ async function handlePocketSelection(req, res, baseUrl) {
   const pocket = pockets[selection];
 
   if (!session.pendingItem || !session.pendingItem.fit) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
   if (!pocket) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid pocket selection.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -1018,12 +1018,12 @@ async function handleCuffSelection(req, res, baseUrl) {
   const cuff = cuffs[selection];
 
   if (!session.pendingItem || !session.pendingItem.pocket) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your order setup expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
   if (!cuff) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid cuff selection.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -1054,7 +1054,7 @@ async function handleQuantitySelection(req, res, baseUrl) {
     !pendingItem.pocket ||
     !pendingItem.cuff
   ) {
-    xml(res, 200, invalidSelectionResponse(baseUrl, "Your shirt selection expired. Let us start again.", "/api/twilio/order/start"));
+    xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
     return;
   }
 
@@ -1182,7 +1182,7 @@ async function handlePostAddMenu(req, res, baseUrl) {
     return;
   }
 
-  xml(res, 200, invalidSelectionResponse(baseUrl, "That was not a valid option.", "/api/twilio/menu"));
+  xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/next"));
 }
 
 function routeRequest(req, res, pathname, baseUrl) {
