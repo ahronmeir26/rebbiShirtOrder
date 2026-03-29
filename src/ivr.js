@@ -172,7 +172,7 @@ function getSession(callSid) {
 }
 
 function formatCartLine(item, index) {
-  return `Item ${index + 1}, quantity ${item.quantity}, ${item.category} ${item.style} shirt, size ${item.size}, sleeve ${item.sleeve}, ${item.fit}, ${item.pocket}, ${item.cuff}, fabric twill.`;
+  return `Item ${index + 1}. Quantity ${item.quantity}, ${item.category} ${item.style} shirt, size ${item.size}, sleeve ${item.sleeve}, ${item.fit}, ${item.pocket}, ${item.cuff}, fabric twill.`;
 }
 
 function formatCartForSpeech(cart) {
@@ -392,7 +392,7 @@ function sizeMenuResponse(baseUrl) {
     gather(baseUrl, {
       action: "/api/twilio/order/size",
       finishOnKey: "#",
-      timeout: 8,
+      timeout: 3,
       input: "dtmf",
       hints: "14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18, 18.5, 19, 19.5, 20",
       prompt:
