@@ -1,4 +1,4 @@
-const { handleHttpRequest } = require("../../../src/ivr");
+const { handleHttpRequest } = require("../../src/ivr");
 
 module.exports = async function handler(req, res) {
   req.url = req.url || "/api/twilio/voice";
