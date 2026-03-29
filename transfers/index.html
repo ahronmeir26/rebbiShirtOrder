@@ -3,161 +3,534 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Transfers</title>
+    <title>A.I. Stone Transfers</title>
     <style>
       :root {
-        --bg: #f5f8ff;
+        --powder: #d9e3f7;
+        --powder-strong: #c3d2f3;
+        --navy: #22468d;
+        --navy-deep: #183363;
+        --paper: #f6f4f1;
         --panel: #ffffff;
-        --panel-alt: #eef4ff;
-        --ink: #314156;
-        --muted: #66758a;
-        --line: #c8d7ee;
-        --accent: #24478f;
+        --mist: #edf2fb;
+        --line: #cfd8ea;
+        --ink: #293445;
+        --muted: #677286;
+        --soft-shadow: 0 18px 48px rgba(24, 51, 99, 0.08);
       }
-      * { box-sizing: border-box; }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
-        background: var(--bg);
+        min-height: 100vh;
+        background:
+          linear-gradient(180deg, var(--powder) 0 188px, var(--paper) 188px 100%);
         color: var(--ink);
         font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
       }
-      .shell {
-        max-width: 1180px;
+
+      .page {
+        max-width: 1400px;
         margin: 0 auto;
-        padding: 28px 18px 40px;
+        padding: 28px 18px 56px;
       }
-      .hero, .order {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 20px;
-      }
-      .hero {
-        padding: 22px;
-        margin-bottom: 18px;
-      }
-      h1 {
-        margin: 0 0 8px;
-        font-size: clamp(1.8rem, 4vw, 2.6rem);
-      }
-      .muted { color: var(--muted); }
-      .stats {
+
+      .masthead {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px;
-        margin-top: 18px;
+        grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
+        gap: 18px;
+        align-items: stretch;
       }
-      .stat {
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 16px;
-        background: var(--panel-alt);
+
+      .intro,
+      .status-panel,
+      .order {
+        background: var(--panel);
+        border: 1px solid rgba(34, 70, 141, 0.12);
+        box-shadow: var(--soft-shadow);
       }
-      .label {
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: var(--muted);
-        margin-bottom: 6px;
+
+      .intro {
+        border-radius: 28px;
+        overflow: hidden;
       }
-      .value {
-        font-size: 1.5rem;
-        font-weight: 700;
-      }
-      .toolbar {
+
+      .intro-top {
         display: flex;
         justify-content: space-between;
+        align-items: flex-start;
+        gap: 18px;
+        padding: 28px 30px 20px;
+        border-bottom: 1px solid rgba(34, 70, 141, 0.12);
+      }
+
+      .brand-kicker {
+        margin: 0 0 12px;
+        font-size: 0.76rem;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--navy);
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        font-weight: 600;
+        font-size: clamp(2rem, 4vw, 3.35rem);
+        line-height: 0.98;
+        letter-spacing: -0.03em;
+        color: var(--navy-deep);
+      }
+
+      .intro-copy {
+        max-width: 34rem;
+        margin: 16px 0 0;
+        font-size: 1rem;
+        line-height: 1.65;
+        color: var(--muted);
+      }
+
+      .stamp {
+        flex: 0 0 auto;
+        min-width: 150px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: var(--navy-deep);
+        color: #fff;
+      }
+
+      .stamp-label {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 0.72rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        opacity: 0.8;
+      }
+
+      .stamp-value {
+        display: block;
+        font-size: 1.8rem;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .stamp-note {
+        display: block;
+        margin-top: 8px;
+        font-size: 0.9rem;
+        opacity: 0.8;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
+      }
+
+      .metric {
+        padding: 20px 30px 24px;
+        border-right: 1px solid rgba(34, 70, 141, 0.12);
+      }
+
+      .metric:last-child {
+        border-right: 0;
+      }
+
+      .metric-label {
+        margin-bottom: 10px;
+        font-size: 0.72rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .metric-value {
+        font-size: clamp(1.55rem, 3vw, 2.4rem);
+        font-weight: 700;
+        color: var(--navy-deep);
+      }
+
+      .metric-subtext {
+        margin-top: 6px;
+        font-size: 0.94rem;
+        color: var(--muted);
+      }
+
+      .status-panel {
+        border-radius: 28px;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .status-title {
+        margin: 0 0 12px;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: var(--navy-deep);
+      }
+
+      .status-card {
+        padding: 18px;
+        border-radius: 22px;
+        background: var(--mist);
+        border: 1px solid rgba(34, 70, 141, 0.12);
+      }
+
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: #fff;
+        border: 1px solid rgba(34, 70, 141, 0.18);
+        font-size: 0.84rem;
+        font-weight: 600;
+        color: var(--navy-deep);
+      }
+
+      .status-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--navy);
+      }
+
+      .status-copy {
+        margin: 14px 0 0;
+        font-size: 0.98rem;
+        line-height: 1.65;
+        color: var(--muted);
+      }
+
+      .actions {
+        display: flex;
         gap: 12px;
         align-items: center;
-        margin-bottom: 16px;
-        flex-wrap: wrap;
+        margin-top: 22px;
       }
+
       button {
+        appearance: none;
         border: 0;
         border-radius: 999px;
-        background: var(--accent);
-        color: white;
-        padding: 10px 14px;
+        background: var(--navy);
+        color: #fff;
+        padding: 12px 18px;
         font: inherit;
+        font-weight: 600;
+        letter-spacing: 0.01em;
         cursor: pointer;
+        transition: background 140ms ease, transform 140ms ease;
       }
-      .orders {
-        display: grid;
-        gap: 14px;
+
+      button:hover {
+        background: var(--navy-deep);
+        transform: translateY(-1px);
       }
-      .order {
-        padding: 18px;
-      }
-      .head {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 14px;
-      }
-      .name {
-        font-size: 1.15rem;
-        font-weight: 700;
-      }
-      .chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 10px;
-      }
-      .chip {
-        border: 1px solid var(--line);
-        background: var(--panel-alt);
-        border-radius: 999px;
-        padding: 6px 10px;
-        font-size: 0.9rem;
-      }
-      .items {
-        margin-top: 14px;
-        display: grid;
-        gap: 8px;
-      }
-      .item {
-        padding: 12px 14px;
-        border-radius: 14px;
-        border: 1px solid var(--line);
-        background: #fafcff;
-      }
-      .status {
+
+      .helper {
+        font-size: 0.92rem;
         color: var(--muted);
       }
-      .empty {
-        padding: 32px;
-        text-align: center;
-        border: 1px dashed var(--line);
+
+      .list-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: end;
+        margin: 30px 0 18px;
+      }
+
+      .list-title {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        font-weight: 600;
+        font-size: clamp(1.5rem, 3vw, 2.2rem);
+        color: var(--navy-deep);
+      }
+
+      .list-subtitle {
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .orders {
+        display: grid;
+        gap: 18px;
+      }
+
+      .order {
+        border-radius: 28px;
+        padding: 22px;
+      }
+
+      .order-top {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(250px, 0.8fr);
+        gap: 18px;
+        padding-bottom: 18px;
+        margin-bottom: 18px;
+        border-bottom: 1px solid rgba(34, 70, 141, 0.12);
+      }
+
+      .order-number {
+        margin: 0;
+        font-size: 1.45rem;
+        font-weight: 700;
+        color: var(--navy-deep);
+      }
+
+      .order-meta {
+        margin-top: 8px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .identity {
+        display: grid;
+        gap: 10px;
+        align-content: start;
+      }
+
+      .identity-row {
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: var(--mist);
+        border: 1px solid rgba(34, 70, 141, 0.1);
+      }
+
+      .identity-label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .identity-value {
+        font-size: 1rem;
+        color: var(--ink);
+      }
+
+      .order-bottom {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+        gap: 18px;
+      }
+
+      .items {
+        display: grid;
+        gap: 12px;
+      }
+
+      .item {
+        padding: 16px 18px;
         border-radius: 18px;
+        background: #fbfcff;
+        border: 1px solid var(--line);
+      }
+
+      .item-title {
+        font-size: 1.02rem;
+        font-weight: 700;
+        line-height: 1.4;
+        color: var(--ink);
+      }
+
+      .item-variant {
+        margin-top: 6px;
+        color: var(--muted);
+      }
+
+      .item-footer {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+
+      .token {
+        display: inline-flex;
+        align-items: center;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: var(--mist);
+        border: 1px solid rgba(34, 70, 141, 0.12);
+        font-size: 0.86rem;
+        color: var(--navy-deep);
+      }
+
+      .summary {
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+
+      .summary-box {
+        padding: 16px 18px;
+        border-radius: 20px;
+        background: var(--mist);
+        border: 1px solid rgba(34, 70, 141, 0.12);
+      }
+
+      .summary-title {
+        margin: 0 0 12px;
+        font-size: 0.82rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .summary-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .summary-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--ink);
+      }
+
+      .summary-line strong {
+        color: var(--navy-deep);
+      }
+
+      .note {
+        margin: 0;
+        white-space: pre-wrap;
+        line-height: 1.65;
+        color: var(--ink);
+      }
+
+      .empty {
+        padding: 44px 28px;
+        text-align: center;
+        border-radius: 28px;
         background: var(--panel);
+        border: 1px dashed rgba(34, 70, 141, 0.25);
+        color: var(--muted);
+        box-shadow: var(--soft-shadow);
+      }
+
+      @media (max-width: 980px) {
+        .masthead,
+        .order-top,
+        .order-bottom {
+          grid-template-columns: 1fr;
+        }
+
+        .metrics {
+          grid-template-columns: 1fr;
+        }
+
+        .metric {
+          border-right: 0;
+          border-bottom: 1px solid rgba(34, 70, 141, 0.12);
+        }
+
+        .metric:last-child {
+          border-bottom: 0;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          padding: 18px 14px 40px;
+        }
+
+        .intro-top,
+        .metric,
+        .status-panel,
+        .order {
+          padding-left: 18px;
+          padding-right: 18px;
+        }
+
+        .intro-top {
+          flex-direction: column;
+        }
+
+        .stamp {
+          width: 100%;
+        }
       }
     </style>
   </head>
   <body>
-    <main class="shell">
-      <section class="hero">
-        <h1>Transfers</h1>
-        <p class="muted">Unfulfilled Shopify orders loaded independently from the phone-order system.</p>
-        <div class="stats">
-          <div class="stat">
-            <div class="label">Orders</div>
-            <div class="value" id="order-count">0</div>
+    <main class="page">
+      <section class="masthead">
+        <article class="intro">
+          <div class="intro-top">
+            <div>
+              <p class="brand-kicker">A.I. Stone Operations</p>
+              <h1>Transfers Queue</h1>
+              <p class="intro-copy">
+                Unfulfilled Shopify orders, separated from the phone-ordering system and organized for fulfillment work.
+              </p>
+            </div>
+            <div class="stamp">
+              <span class="stamp-label">Feed</span>
+              <span class="stamp-value" id="load-status">Loading</span>
+              <span class="stamp-note">Shopify transfer intake</span>
+            </div>
           </div>
-          <div class="stat">
-            <div class="label">Items</div>
-            <div class="value" id="item-count">0</div>
+
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Orders In Queue</div>
+              <div class="metric-value" id="order-count">0</div>
+              <div class="metric-subtext">Eligible transfer orders</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Units Pending</div>
+              <div class="metric-value" id="item-count">0</div>
+              <div class="metric-subtext">Total unfulfilled line quantity</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Current Message</div>
+              <div class="metric-value" id="message" style="font-size:1.15rem">Loading…</div>
+              <div class="metric-subtext">Live endpoint status</div>
+            </div>
           </div>
-          <div class="stat">
-            <div class="label">Status</div>
-            <div class="value" id="load-status" style="font-size:1rem">Loading…</div>
+        </article>
+
+        <aside class="status-panel">
+          <div>
+            <h2 class="status-title">Control</h2>
+            <div class="status-card">
+              <span class="status-badge">
+                <span class="status-dot"></span>
+                Shopify transfer endpoint
+              </span>
+              <p class="status-copy">
+                This page only displays orders that are still fully unfulfilled. In-progress and partial fulfillment work is excluded.
+              </p>
+            </div>
           </div>
-        </div>
+
+          <div class="actions">
+            <button id="refresh">Refresh Queue</button>
+            <span class="helper">Manual refresh pulls a fresh Shopify snapshot.</span>
+          </div>
+        </aside>
       </section>
 
-      <div class="toolbar">
-        <div class="status" id="message">Loading Shopify orders…</div>
-        <button id="refresh">Refresh</button>
+      <div class="list-header">
+        <div>
+          <h2 class="list-title">Ready For Transfer Review</h2>
+          <p class="list-subtitle">Each order shows customer details, destination, and line items with SKU visibility.</p>
+        </div>
       </div>
 
       <section class="orders" id="orders"></section>
@@ -176,8 +549,17 @@
         return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
       }
 
+      function escapeHtml(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
       function renderEmpty(message) {
-        ordersEl.innerHTML = `<article class="empty">${message}</article>`;
+        ordersEl.innerHTML = `<article class="empty">${escapeHtml(message)}</article>`;
       }
 
       function renderOrders(payload) {
@@ -186,8 +568,8 @@
         itemCountEl.textContent = String(
           orders.reduce((sum, order) => sum + Number(order.itemCount || 0), 0)
         );
-        loadStatusEl.textContent = payload.configured ? "Connected" : "Missing config";
-        messageEl.textContent = payload.error || (orders.length ? "Shopify orders loaded." : "No unfulfilled orders found.");
+        loadStatusEl.textContent = payload.configured ? "Connected" : "Missing";
+        messageEl.textContent = payload.error || (orders.length ? "Queue loaded" : "No transfers");
 
         if (!payload.configured) {
           renderEmpty(payload.error || "Shopify is not configured.");
@@ -195,50 +577,102 @@
         }
 
         if (!orders.length) {
-          renderEmpty("No unfulfilled Shopify orders found.");
+          renderEmpty("No fully unfulfilled Shopify orders are waiting in the transfer queue.");
           return;
         }
 
         ordersEl.innerHTML = orders
-          .map(
-            (order) => `
+          .map((order) => {
+            const location = [order.city, order.province].filter(Boolean).join(", ");
+            const customer = order.customerName || order.shippingName || order.email || order.phone || "Unknown customer";
+
+            return `
               <article class="order">
-                <div class="head">
+                <div class="order-top">
                   <div>
-                    <div class="name">${order.name || "Order"}</div>
-                    <div class="muted">${formatTime(order.createdAt)}</div>
+                    <h3 class="order-number">${escapeHtml(order.name || "Order")}</h3>
+                    <div class="order-meta">
+                      <div>${escapeHtml(formatTime(order.createdAt))}</div>
+                      <div>${escapeHtml(customer)}</div>
+                    </div>
                   </div>
-                  <div class="muted">${order.customerName || order.shippingName || order.email || order.phone || "Unknown customer"}</div>
+
+                  <div class="identity">
+                    <div class="identity-row">
+                      <span class="identity-label">Fulfillment</span>
+                      <span class="identity-value">${escapeHtml(order.fulfillmentStatus || "unfulfilled")}</span>
+                    </div>
+                    <div class="identity-row">
+                      <span class="identity-label">Financial</span>
+                      <span class="identity-value">${escapeHtml(order.financialStatus || "unknown")}</span>
+                    </div>
+                    <div class="identity-row">
+                      <span class="identity-label">Destination</span>
+                      <span class="identity-value">${escapeHtml(location || "No shipping city listed")}</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="chips">
-                  <span class="chip">Fulfillment: ${order.fulfillmentStatus}</span>
-                  <span class="chip">Financial: ${order.financialStatus}</span>
-                  ${order.city ? `<span class="chip">${order.city}${order.province ? `, ${order.province}` : ""}</span>` : ""}
-                  ${order.tags ? `<span class="chip">Tags: ${order.tags}</span>` : ""}
+
+                <div class="order-bottom">
+                  <div class="items">
+                    ${order.items
+                      .map(
+                        (item) => `
+                          <div class="item">
+                            <div class="item-title">${escapeHtml(item.title || "Item")}</div>
+                            ${item.variantTitle ? `<div class="item-variant">${escapeHtml(item.variantTitle)}</div>` : ""}
+                            <div class="item-footer">
+                              <span class="token">Qty ${escapeHtml(item.quantity || 0)}</span>
+                              ${item.sku ? `<span class="token">SKU ${escapeHtml(item.sku)}</span>` : ""}
+                            </div>
+                          </div>
+                        `
+                      )
+                      .join("")}
+                  </div>
+
+                  <aside class="summary">
+                    <div class="summary-box">
+                      <h4 class="summary-title">Order Summary</h4>
+                      <div class="summary-list">
+                        <div class="summary-line"><span>Customer</span><strong>${escapeHtml(customer)}</strong></div>
+                        <div class="summary-line"><span>Items</span><strong>${escapeHtml(order.itemCount || 0)}</strong></div>
+                        <div class="summary-line"><span>Shipping</span><strong>${escapeHtml(order.shippingName || "Not listed")}</strong></div>
+                      </div>
+                    </div>
+
+                    ${
+                      order.tags
+                        ? `
+                          <div class="summary-box">
+                            <h4 class="summary-title">Tags</h4>
+                            <p class="note">${escapeHtml(order.tags)}</p>
+                          </div>
+                        `
+                        : ""
+                    }
+
+                    ${
+                      order.note
+                        ? `
+                          <div class="summary-box">
+                            <h4 class="summary-title">Note</h4>
+                            <p class="note">${escapeHtml(order.note)}</p>
+                          </div>
+                        `
+                        : ""
+                    }
+                  </aside>
                 </div>
-                <div class="items">
-                  ${order.items
-                    .map(
-                      (item) => `
-                        <div class="item">
-                          <strong>${item.title || "Item"}</strong>
-                          ${item.variantTitle ? `<span class="muted"> · ${item.variantTitle}</span>` : ""}
-                          <div class="muted">Qty ${item.quantity || 0}${item.sku ? ` · SKU ${item.sku}` : ""}</div>
-                        </div>
-                      `
-                    )
-                    .join("")}
-                </div>
-                ${order.note ? `<p class="muted">Note: ${order.note}</p>` : ""}
               </article>
-            `
-          )
+            `;
+          })
           .join("");
       }
 
       async function loadTransfers() {
         try {
-          messageEl.textContent = "Loading Shopify orders…";
+          messageEl.textContent = "Loading…";
           const response = await fetch("/api/transfers", { cache: "no-store" });
           const payload = await response.json();
           renderOrders(payload);
