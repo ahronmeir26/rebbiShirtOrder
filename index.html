@@ -305,6 +305,10 @@
             <div class="stat-value" id="shirt-count">0</div>
           </article>
           <article class="stat">
+            <div class="stat-label">Revenue</div>
+            <div class="stat-value" id="revenue-total" style="font-size:1.4rem">$0.00</div>
+          </article>
+          <article class="stat">
             <div class="stat-label">Last Refresh</div>
             <div class="stat-value" id="last-refresh" style="font-size:1.15rem">Never</div>
           </article>
@@ -329,6 +333,7 @@
       const ordersEl = document.getElementById("orders");
       const orderCountEl = document.getElementById("order-count");
       const shirtCountEl = document.getElementById("shirt-count");
+      const revenueEl = document.getElementById("revenue-total");
       const lastRefreshEl = document.getElementById("last-refresh");
       const statusEl = document.getElementById("status");
       const refreshButton = document.getElementById("refresh-button");
@@ -351,6 +356,17 @@
             : Number(order.totalQuantity || 0);
           return sum + perOrder;
         }, 0);
+      }
+
+      function totalRevenue(orders) {
+        return orders.reduce((sum, order) => sum + Number(order.totalPrice || 0), 0);
+      }
+
+      function formatMoney(amount) {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: "USD"
+        }).format(Number(amount || 0));
       }
 
       function renderEmpty() {
@@ -429,6 +445,7 @@
                             <div class="qty">Qty ${item.quantity || 0}</div>
                           </div>
                           <p class="sku-line">SKU: ${item.sku || buildSku(item)}</p>
+                          <p class="sku-line">Line Total: ${formatMoney(item.lineTotal || 0)}</p>
                           <div class="chips">
                             ${chip("Size", item.size)}
                             ${chip("Sleeve", item.sleeve)}
@@ -442,6 +459,7 @@
                     )
                     .join("")}
                 </section>
+                <p class="sku-line">Order Total: ${formatMoney(order.totalPrice || 0)}</p>
               </article>
             `;
           })
@@ -456,6 +474,7 @@
           const orders = await response.json();
           orderCountEl.textContent = String(orders.length);
           shirtCountEl.textContent = String(totalShirts(orders));
+          revenueEl.textContent = formatMoney(totalRevenue(orders));
           lastRefreshEl.textContent = new Date().toLocaleTimeString();
           statusEl.textContent = orders.length ? "Orders loaded." : "No orders yet.";
           renderOrders(orders);

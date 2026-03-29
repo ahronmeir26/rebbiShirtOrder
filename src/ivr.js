@@ -5,6 +5,7 @@ const dataDir = path.join(__dirname, "..", "data");
 const ordersFile = path.join(dataDir, "orders.json");
 const dashboardFile = path.join(__dirname, "..", "index.html");
 const logoFile = path.join(__dirname, "..", "logo-aistone.png");
+const pricingFile = path.join(__dirname, "..", "pricing.json");
 const DEFAULT_VOICE = process.env.TTS_VOICE || "Polly.Joanna-Neural";
 const DEFAULT_LANGUAGE = process.env.TTS_LANGUAGE || "en-US";
 
@@ -179,6 +180,49 @@ function getSession(callSid) {
   return { key, session: sessions.get(key) };
 }
 
+function loadPricing() {
+  try {
+    return JSON.parse(fs.readFileSync(pricingFile, "utf8"));
+  } catch (_error) {
+    return {
+      categoryBase: {},
+      collarAdjustment: {},
+      fitAdjustment: {},
+      pocketAdjustment: {},
+      cuffAdjustment: {},
+      sleeveAdjustment: {},
+      dpAdjustment: 0
+    };
+  }
+}
+
+function priceNumber(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function calculateUnitPrice(item) {
+  const pricing = loadPricing();
+
+  return (
+    priceNumber(pricing.categoryBase?.[item.category]) +
+    priceNumber(pricing.collarAdjustment?.[item.collar]) +
+    priceNumber(pricing.fitAdjustment?.[item.fit]) +
+    priceNumber(pricing.pocketAdjustment?.[item.pocket]) +
+    priceNumber(pricing.cuffAdjustment?.[item.cuff]) +
+    priceNumber(pricing.sleeveAdjustment?.[item.sleeve]) +
+    priceNumber(pricing.dpAdjustment)
+  );
+}
+
+function calculateLineTotal(item) {
+  return calculateUnitPrice(item) * Number(item.quantity || 0);
+}
+
+function calculateOrderTotal(items) {
+  return items.reduce((sum, item) => sum + calculateLineTotal(item), 0);
+}
+
 function encodePendingItem(item) {
   return Buffer.from(JSON.stringify(item), "utf8").toString("base64url");
 }
@@ -263,11 +307,14 @@ function normalizeStoredItem(item) {
     normalized.sku = buildSku(normalized);
   }
 
+  normalized.unitPrice = calculateUnitPrice(normalized);
+  normalized.lineTotal = calculateLineTotal(normalized);
+
   return normalized;
 }
 
 function formatCartLine(item, index) {
-  return `Item ${index + 1}. Quantity ${item.quantity}, ${item.category} ${item.style} shirt, size ${item.size}, sleeve ${item.sleeve}, ${item.fit}, ${item.pocket}, ${item.cuff}, fabric twill.`;
+  return `Item ${index + 1}. Quantity ${item.quantity}, ${item.category} ${item.style} shirt, size ${item.size}, sleeve ${item.sleeve}, ${item.fit}, ${item.pocket}, ${item.cuff}, fabric twill, line total ${calculateLineTotal(item)} dollars.`;
 }
 
 function formatCartForSpeech(cart) {
@@ -612,13 +659,14 @@ function quantityMenuResponse(baseUrl, itemDescription, pendingItem) {
 
 function postAddMenuResponse(baseUrl, session) {
   const totalUnits = cartQuantity(session.cart);
+  const totalPrice = calculateOrderTotal(session.cart);
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/next",
       input: "dtmf",
       numDigits: 1,
       hints: "add another, hear cart, confirm, cancel",
-      prompt: `${formatCartForSpeech(session.cart)} You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to hear your cart again. Press 3 to place this order. Press 4 to cancel. Press star to go back.`
+      prompt: `${formatCartForSpeech(session.cart)} Your current total is ${totalPrice} dollars. You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to hear your cart again. Press 3 to place this order. Press 4 to cancel. Press star to go back.`
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, "/api/twilio/menu")
@@ -1109,6 +1157,9 @@ async function handleQuantitySelection(req, res, baseUrl) {
       cuff: pendingItem.cuff.name
     })
   });
+  const addedItem = session.cart[session.cart.length - 1];
+  addedItem.unitPrice = calculateUnitPrice(addedItem);
+  addedItem.lineTotal = calculateLineTotal(addedItem);
   delete session.pendingItem;
 
   xml(res, 200, postAddMenuResponse(baseUrl, session));
@@ -1161,8 +1212,9 @@ async function handlePostAddMenu(req, res, baseUrl) {
       callSid: key,
       caller: form.From || "unknown",
       createdAt: new Date().toISOString(),
-      items: session.cart,
-      totalQuantity: cartQuantity(session.cart)
+      items: session.cart.map(normalizeStoredItem),
+      totalQuantity: cartQuantity(session.cart),
+      totalPrice: calculateOrderTotal(session.cart)
     };
 
     try {
