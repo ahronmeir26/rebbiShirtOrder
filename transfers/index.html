@@ -6,17 +6,20 @@
     <title>A.I. Stone Transfers</title>
     <style>
       :root {
-        --powder: #d9e3f7;
-        --powder-strong: #c3d2f3;
-        --navy: #22468d;
-        --navy-deep: #183363;
-        --paper: #f6f4f1;
-        --panel: #ffffff;
-        --mist: #edf2fb;
-        --line: #cfd8ea;
-        --ink: #293445;
-        --muted: #677286;
-        --soft-shadow: 0 18px 48px rgba(24, 51, 99, 0.08);
+        --sky: #dce6f7;
+        --sky-strong: #c8d8f2;
+        --navy: #24478f;
+        --navy-deep: #1c3668;
+        --ink: #2b3441;
+        --muted: #6f7785;
+        --workspace: #f1f3f7;
+        --card: #ffffff;
+        --line: #dde2ea;
+        --success: #3f8a6a;
+        --success-deep: #2f7458;
+        --warning: #f6c458;
+        --warning-ink: #614400;
+        --shadow: 0 10px 26px rgba(19, 43, 84, 0.08);
       }
 
       * {
@@ -26,550 +29,424 @@
       body {
         margin: 0;
         min-height: 100vh;
-        background:
-          linear-gradient(180deg, var(--powder) 0 188px, var(--paper) 188px 100%);
+        background: var(--workspace);
         color: var(--ink);
         font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
       }
 
-      .page {
-        max-width: 1400px;
-        margin: 0 auto;
-        padding: 28px 18px 56px;
-      }
-
-      .masthead {
-        display: grid;
-        grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
-        gap: 18px;
-        align-items: stretch;
-      }
-
-      .intro,
-      .status-panel,
-      .order {
-        background: var(--panel);
-        border: 1px solid rgba(34, 70, 141, 0.12);
-        box-shadow: var(--soft-shadow);
-      }
-
-      .intro {
-        border-radius: 28px;
-        overflow: hidden;
-      }
-
-      .intro-top {
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
         gap: 18px;
-        padding: 28px 30px 20px;
-        border-bottom: 1px solid rgba(34, 70, 141, 0.12);
-      }
-
-      .brand-kicker {
-        margin: 0 0 12px;
-        font-size: 0.76rem;
-        letter-spacing: 0.26em;
-        text-transform: uppercase;
-        color: var(--navy);
-      }
-
-      h1 {
-        margin: 0;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-        font-weight: 600;
-        font-size: clamp(2rem, 4vw, 3.35rem);
-        line-height: 0.98;
-        letter-spacing: -0.03em;
-        color: var(--navy-deep);
-      }
-
-      .intro-copy {
-        max-width: 34rem;
-        margin: 16px 0 0;
-        font-size: 1rem;
-        line-height: 1.65;
-        color: var(--muted);
-      }
-
-      .stamp {
-        flex: 0 0 auto;
-        min-width: 150px;
-        padding: 14px 16px;
-        border-radius: 18px;
-        background: var(--navy-deep);
-        color: #fff;
-      }
-
-      .stamp-label {
-        display: block;
-        margin-bottom: 10px;
-        font-size: 0.72rem;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        opacity: 0.8;
-      }
-
-      .stamp-value {
-        display: block;
-        font-size: 1.8rem;
-        font-weight: 700;
-        line-height: 1;
-      }
-
-      .stamp-note {
-        display: block;
-        margin-top: 8px;
-        font-size: 0.9rem;
-        opacity: 0.8;
-      }
-
-      .metrics {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0;
-      }
-
-      .metric {
-        padding: 20px 30px 24px;
-        border-right: 1px solid rgba(34, 70, 141, 0.12);
-      }
-
-      .metric:last-child {
-        border-right: 0;
-      }
-
-      .metric-label {
-        margin-bottom: 10px;
-        font-size: 0.72rem;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-
-      .metric-value {
-        font-size: clamp(1.55rem, 3vw, 2.4rem);
-        font-weight: 700;
-        color: var(--navy-deep);
-      }
-
-      .metric-subtext {
-        margin-top: 6px;
-        font-size: 0.94rem;
-        color: var(--muted);
-      }
-
-      .status-panel {
-        border-radius: 28px;
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      }
-
-      .status-title {
-        margin: 0 0 12px;
-        font-size: 1.2rem;
-        font-weight: 700;
-        color: var(--navy-deep);
-      }
-
-      .status-card {
-        padding: 18px;
-        border-radius: 22px;
-        background: var(--mist);
-        border: 1px solid rgba(34, 70, 141, 0.12);
-      }
-
-      .status-badge {
-        display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: #fff;
-        border: 1px solid rgba(34, 70, 141, 0.18);
-        font-size: 0.84rem;
-        font-weight: 600;
-        color: var(--navy-deep);
+        padding: 14px 18px;
+        background: rgba(255, 255, 255, 0.96);
+        border-bottom: 1px solid rgba(36, 71, 143, 0.12);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 2px 12px rgba(17, 34, 68, 0.04);
       }
 
-      .status-dot {
-        width: 9px;
-        height: 9px;
-        border-radius: 999px;
-        background: var(--navy);
+      .brand {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        min-width: 0;
       }
 
-      .status-copy {
-        margin: 14px 0 0;
-        font-size: 0.98rem;
-        line-height: 1.65;
+      .wordmark {
+        font-size: clamp(2rem, 3.8vw, 2.9rem);
+        line-height: 0.9;
+        font-weight: 500;
+        letter-spacing: 0.03em;
+        color: #303846;
+        white-space: nowrap;
+      }
+
+      .brand-copy {
+        min-width: 0;
+        padding-left: 18px;
+        border-left: 1px solid var(--line);
+      }
+
+      .brand-title {
+        margin: 0;
+        font-size: clamp(1.4rem, 2.2vw, 2rem);
+        font-weight: 700;
+      }
+
+      .brand-subtitle {
+        margin: 4px 0 0;
         color: var(--muted);
+        font-size: 0.98rem;
       }
 
-      .actions {
+      .top-actions {
         display: flex;
         gap: 12px;
         align-items: center;
-        margin-top: 22px;
+        flex-wrap: wrap;
       }
 
-      button {
+      .ghost-button {
         appearance: none;
-        border: 0;
-        border-radius: 999px;
-        background: var(--navy);
-        color: #fff;
-        padding: 12px 18px;
+        border: 1px solid rgba(36, 71, 143, 0.18);
+        background: #fff;
+        color: #363f4f;
+        border-radius: 12px;
+        padding: 10px 14px;
         font: inherit;
         font-weight: 600;
-        letter-spacing: 0.01em;
         cursor: pointer;
-        transition: background 140ms ease, transform 140ms ease;
+        box-shadow: 0 2px 8px rgba(22, 38, 70, 0.05);
       }
 
-      button:hover {
-        background: var(--navy-deep);
-        transform: translateY(-1px);
+      .ghost-button:hover {
+        border-color: rgba(36, 71, 143, 0.34);
       }
 
-      .helper {
-        font-size: 0.92rem;
-        color: var(--muted);
+      .shell {
+        padding: 22px 18px 54px;
       }
 
-      .list-header {
+      .summary {
         display: flex;
         justify-content: space-between;
-        gap: 16px;
-        align-items: end;
-        margin: 30px 0 18px;
-      }
-
-      .list-title {
-        margin: 0;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-        font-weight: 600;
-        font-size: clamp(1.5rem, 3vw, 2.2rem);
-        color: var(--navy-deep);
-      }
-
-      .list-subtitle {
-        margin: 8px 0 0;
+        gap: 14px;
+        align-items: center;
+        margin-bottom: 18px;
         color: var(--muted);
-        line-height: 1.55;
+        font-size: 0.98rem;
+      }
+
+      .summary strong {
+        color: var(--ink);
+      }
+
+      .summary-left,
+      .summary-right {
+        display: flex;
+        gap: 10px;
+        align-items: center;
       }
 
       .orders {
         display: grid;
-        gap: 18px;
-      }
-
-      .order {
-        border-radius: 28px;
-        padding: 22px;
-      }
-
-      .order-top {
-        display: grid;
-        grid-template-columns: minmax(0, 1.2fr) minmax(250px, 0.8fr);
-        gap: 18px;
-        padding-bottom: 18px;
-        margin-bottom: 18px;
-        border-bottom: 1px solid rgba(34, 70, 141, 0.12);
-      }
-
-      .order-number {
-        margin: 0;
-        font-size: 1.45rem;
-        font-weight: 700;
-        color: var(--navy-deep);
-      }
-
-      .order-meta {
-        margin-top: 8px;
-        color: var(--muted);
-        line-height: 1.6;
-      }
-
-      .identity {
-        display: grid;
-        gap: 10px;
-        align-content: start;
-      }
-
-      .identity-row {
-        padding: 12px 14px;
-        border-radius: 16px;
-        background: var(--mist);
-        border: 1px solid rgba(34, 70, 141, 0.1);
-      }
-
-      .identity-label {
-        display: block;
-        margin-bottom: 4px;
-        font-size: 0.72rem;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-
-      .identity-value {
-        font-size: 1rem;
-        color: var(--ink);
-      }
-
-      .order-bottom {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-        gap: 18px;
-      }
-
-      .items {
-        display: grid;
-        gap: 12px;
-      }
-
-      .item {
-        padding: 16px 18px;
-        border-radius: 18px;
-        background: #fbfcff;
-        border: 1px solid var(--line);
-      }
-
-      .item-title {
-        font-size: 1.02rem;
-        font-weight: 700;
-        line-height: 1.4;
-        color: var(--ink);
-      }
-
-      .item-variant {
-        margin-top: 6px;
-        color: var(--muted);
-      }
-
-      .item-footer {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-top: 12px;
-      }
-
-      .token {
-        display: inline-flex;
-        align-items: center;
-        padding: 7px 10px;
-        border-radius: 999px;
-        background: var(--mist);
-        border: 1px solid rgba(34, 70, 141, 0.12);
-        font-size: 0.86rem;
-        color: var(--navy-deep);
-      }
-
-      .summary {
-        display: grid;
-        gap: 12px;
-        align-content: start;
-      }
-
-      .summary-box {
-        padding: 16px 18px;
-        border-radius: 20px;
-        background: var(--mist);
-        border: 1px solid rgba(34, 70, 141, 0.12);
-      }
-
-      .summary-title {
-        margin: 0 0 12px;
-        font-size: 0.82rem;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-
-      .summary-list {
-        display: grid;
-        gap: 10px;
-      }
-
-      .summary-line {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        color: var(--ink);
-      }
-
-      .summary-line strong {
-        color: var(--navy-deep);
-      }
-
-      .note {
-        margin: 0;
-        white-space: pre-wrap;
-        line-height: 1.65;
-        color: var(--ink);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 20px;
       }
 
       .empty {
-        padding: 44px 28px;
+        grid-column: 1 / -1;
+        padding: 42px 24px;
+        border-radius: 22px;
+        background: #fff;
+        border: 1px dashed rgba(36, 71, 143, 0.22);
         text-align: center;
-        border-radius: 28px;
-        background: var(--panel);
-        border: 1px dashed rgba(34, 70, 141, 0.25);
         color: var(--muted);
-        box-shadow: var(--soft-shadow);
       }
 
-      @media (max-width: 980px) {
-        .masthead,
-        .order-top,
-        .order-bottom {
-          grid-template-columns: 1fr;
-        }
+      .order {
+        position: relative;
+        background: var(--card);
+        border: 1px solid rgba(36, 71, 143, 0.12);
+        border-top: 5px solid var(--success);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
 
-        .metrics {
-          grid-template-columns: 1fr;
-        }
+      .order.urgent {
+        border-top-color: var(--warning);
+      }
 
-        .metric {
-          border-right: 0;
-          border-bottom: 1px solid rgba(34, 70, 141, 0.12);
-        }
+      .order-body {
+        padding: 18px 18px 16px;
+      }
 
-        .metric:last-child {
-          border-bottom: 0;
+      .order-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .order-number {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 0;
+        font-size: 1.08rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        color: #2f3743;
+      }
+
+      .cube {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .status-pill {
+        flex: 0 0 auto;
+        padding: 8px 14px;
+        border-radius: 10px;
+        background: var(--success);
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 700;
+        box-shadow: 0 4px 10px rgba(63, 138, 106, 0.22);
+      }
+
+      .status-pill.urgent {
+        background: var(--warning);
+        color: var(--warning-ink);
+        box-shadow: 0 4px 10px rgba(246, 196, 88, 0.24);
+      }
+
+      .customer {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.98rem;
+      }
+
+      .customer-icon {
+        font-size: 0.92rem;
+      }
+
+      .items {
+        margin-top: 18px;
+        font-size: 0.98rem;
+        line-height: 1.5;
+        color: #333d4d;
+      }
+
+      .items p {
+        margin: 0;
+      }
+
+      .meta-row {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        margin-top: 18px;
+        font-size: 0.98rem;
+        color: #303846;
+      }
+
+      .price {
+        font-size: 1.05rem;
+        font-weight: 700;
+      }
+
+      .time {
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .action-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        margin-top: 16px;
+      }
+
+      .fulfill-button {
+        appearance: none;
+        border: 0;
+        border-radius: 10px;
+        background: var(--success);
+        color: #fff;
+        padding: 12px 14px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 6px 14px rgba(63, 138, 106, 0.18);
+      }
+
+      .fulfill-button:hover {
+        background: var(--success-deep);
+      }
+
+      .print-mark {
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+
+      .order-footer {
+        padding: 16px 18px 18px;
+        border-top: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(220,230,247,0.08) 100%);
+      }
+
+      .foot-note {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.45;
+        font-size: 0.95rem;
+        white-space: pre-wrap;
+      }
+
+      .aux {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(36, 71, 143, 0.08);
+        color: var(--navy-deep);
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+
+      .sku-list {
+        margin-top: 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .sku-line {
+        font-size: 0.86rem;
+        color: var(--muted);
+      }
+
+      @media (max-width: 1180px) {
+        .orders {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
 
-      @media (max-width: 640px) {
-        .page {
-          padding: 18px 14px 40px;
-        }
-
-        .intro-top,
-        .metric,
-        .status-panel,
-        .order {
-          padding-left: 18px;
-          padding-right: 18px;
-        }
-
-        .intro-top {
+      @media (max-width: 760px) {
+        .topbar {
+          align-items: flex-start;
           flex-direction: column;
         }
 
-        .stamp {
-          width: 100%;
+        .brand {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .brand-copy {
+          padding-left: 0;
+          border-left: 0;
+        }
+
+        .orders {
+          grid-template-columns: 1fr;
+        }
+
+        .summary {
+          flex-direction: column;
+          align-items: flex-start;
         }
       }
     </style>
   </head>
   <body>
-    <main class="page">
-      <section class="masthead">
-        <article class="intro">
-          <div class="intro-top">
-            <div>
-              <p class="brand-kicker">A.I. Stone Operations</p>
-              <h1>Transfers Queue</h1>
-              <p class="intro-copy">
-                Unfulfilled Shopify orders, separated from the phone-ordering system and organized for fulfillment work.
-              </p>
-            </div>
-            <div class="stamp">
-              <span class="stamp-label">Feed</span>
-              <span class="stamp-value" id="load-status">Loading</span>
-              <span class="stamp-note">Shopify transfer intake</span>
-            </div>
-          </div>
-
-          <div class="metrics">
-            <div class="metric">
-              <div class="metric-label">Orders In Queue</div>
-              <div class="metric-value" id="order-count">0</div>
-              <div class="metric-subtext">Eligible transfer orders</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Units Pending</div>
-              <div class="metric-value" id="item-count">0</div>
-              <div class="metric-subtext">Total unfulfilled line quantity</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Current Message</div>
-              <div class="metric-value" id="message" style="font-size:1.15rem">Loading…</div>
-              <div class="metric-subtext">Live endpoint status</div>
-            </div>
-          </div>
-        </article>
-
-        <aside class="status-panel">
-          <div>
-            <h2 class="status-title">Control</h2>
-            <div class="status-card">
-              <span class="status-badge">
-                <span class="status-dot"></span>
-                Shopify transfer endpoint
-              </span>
-              <p class="status-copy">
-                This page only displays orders that are still fully unfulfilled. In-progress and partial fulfillment work is excluded.
-              </p>
-            </div>
-          </div>
-
-          <div class="actions">
-            <button id="refresh">Refresh Queue</button>
-            <span class="helper">Manual refresh pulls a fresh Shopify snapshot.</span>
-          </div>
-        </aside>
-      </section>
-
-      <div class="list-header">
-        <div>
-          <h2 class="list-title">Ready For Transfer Review</h2>
-          <p class="list-subtitle">Each order shows customer details, destination, and line items with SKU visibility.</p>
+    <header class="topbar">
+      <div class="brand">
+        <div class="wordmark">A.I.STONE</div>
+        <div class="brand-copy">
+          <h1 class="brand-title">Open Orders</h1>
+          <p class="brand-subtitle">All open unfulfilled Shopify orders</p>
         </div>
       </div>
+
+      <div class="top-actions">
+        <button class="ghost-button" type="button">⇄ Transfers</button>
+        <button class="ghost-button" id="refresh" type="button">↻ Refresh</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="summary">
+        <div class="summary-left">
+          <span>◌</span>
+          <strong id="order-count-label">0 open orders</strong>
+        </div>
+        <div class="summary-right">
+          <span>Last refresh:</span>
+          <strong id="last-refresh">Loading…</strong>
+        </div>
+      </section>
 
       <section class="orders" id="orders"></section>
     </main>
 
     <script>
       const ordersEl = document.getElementById("orders");
-      const orderCountEl = document.getElementById("order-count");
-      const itemCountEl = document.getElementById("item-count");
-      const loadStatusEl = document.getElementById("load-status");
-      const messageEl = document.getElementById("message");
       const refreshButton = document.getElementById("refresh");
-
-      function formatTime(value) {
-        if (!value) return "Unknown";
-        return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-      }
+      const orderCountLabelEl = document.getElementById("order-count-label");
+      const lastRefreshEl = document.getElementById("last-refresh");
 
       function escapeHtml(value) {
         return String(value || "")
           .replace(/&/g, "&amp;")
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;")
-          .replace(/\"/g, "&quot;")
+          .replace(/"/g, "&quot;")
           .replace(/'/g, "&#39;");
       }
 
+      function formatTime(value) {
+        if (!value) return "Unknown";
+        return new Intl.DateTimeFormat(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit"
+        }).format(new Date(value));
+      }
+
+      function formatLastRefresh() {
+        return new Intl.DateTimeFormat(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit"
+        }).format(new Date());
+      }
+
+      function summarizeItems(items) {
+        return items
+          .map((item) => {
+            const qty = Number(item.quantity || 0);
+            const left = `${qty}x ${item.title || "Item"}`;
+            const right = item.variantTitle ? ` - ${item.variantTitle}` : "";
+            return `${left}${right}`;
+          })
+          .join(", ");
+      }
+
+      function estimateUrgency(order) {
+        const note = String(order.note || "").toLowerCase();
+        const tags = String(order.tags || "").toLowerCase();
+        return note.includes("tonight") || note.includes("urgent") || tags.includes("urgent");
+      }
+
       function renderEmpty(message) {
+        orderCountLabelEl.textContent = "0 open orders";
+        lastRefreshEl.textContent = formatLastRefresh();
         ordersEl.innerHTML = `<article class="empty">${escapeHtml(message)}</article>`;
       }
 
       function renderOrders(payload) {
         const orders = Array.isArray(payload.orders) ? payload.orders : [];
-        orderCountEl.textContent = String(orders.length);
-        itemCountEl.textContent = String(
-          orders.reduce((sum, order) => sum + Number(order.itemCount || 0), 0)
-        );
-        loadStatusEl.textContent = payload.configured ? "Connected" : "Missing";
-        messageEl.textContent = payload.error || (orders.length ? "Queue loaded" : "No transfers");
+        orderCountLabelEl.textContent = `${orders.length} open orders`;
+        lastRefreshEl.textContent = formatLastRefresh();
 
         if (!payload.configured) {
           renderEmpty(payload.error || "Shopify is not configured.");
@@ -577,92 +454,57 @@
         }
 
         if (!orders.length) {
-          renderEmpty("No fully unfulfilled Shopify orders are waiting in the transfer queue.");
+          renderEmpty("No fully unfulfilled Shopify orders found.");
           return;
         }
 
         ordersEl.innerHTML = orders
           .map((order) => {
-            const location = [order.city, order.province].filter(Boolean).join(", ");
+            const urgent = estimateUrgency(order);
             const customer = order.customerName || order.shippingName || order.email || order.phone || "Unknown customer";
+            const itemSummary = summarizeItems(order.items || []);
+            const amount = Number(order.totalPrice || 0);
+            const location = [order.city, order.province].filter(Boolean).join(", ");
 
             return `
-              <article class="order">
-                <div class="order-top">
-                  <div>
-                    <h3 class="order-number">${escapeHtml(order.name || "Order")}</h3>
-                    <div class="order-meta">
-                      <div>${escapeHtml(formatTime(order.createdAt))}</div>
-                      <div>${escapeHtml(customer)}</div>
-                    </div>
+              <article class="order${urgent ? " urgent" : ""}">
+                <div class="order-body">
+                  <div class="order-head">
+                    <h2 class="order-number"><span class="cube">◫</span>${escapeHtml(order.name || "Order")}</h2>
+                    <span class="status-pill${urgent ? " urgent" : ""}">${urgent ? "Getting Urgent" : "New Order"}</span>
                   </div>
 
-                  <div class="identity">
-                    <div class="identity-row">
-                      <span class="identity-label">Fulfillment</span>
-                      <span class="identity-value">${escapeHtml(order.fulfillmentStatus || "unfulfilled")}</span>
-                    </div>
-                    <div class="identity-row">
-                      <span class="identity-label">Financial</span>
-                      <span class="identity-value">${escapeHtml(order.financialStatus || "unknown")}</span>
-                    </div>
-                    <div class="identity-row">
-                      <span class="identity-label">Destination</span>
-                      <span class="identity-value">${escapeHtml(location || "No shipping city listed")}</span>
-                    </div>
+                  <div class="customer"><span class="customer-icon">◌</span>${escapeHtml(customer)}</div>
+
+                  <div class="items">
+                    <p>${escapeHtml(itemSummary || "No line items listed.")}</p>
+                  </div>
+
+                  <div class="meta-row">
+                    <span class="price">${amount > 0 ? `$ ${amount.toFixed(2)}` : "0"}</span>
+                    <span class="time">${escapeHtml(formatTime(order.createdAt))}</span>
+                  </div>
+
+                  <div class="action-row">
+                    <button class="fulfill-button" type="button">◌ Fulfill order</button>
+                    <span class="print-mark">⎙</span>
                   </div>
                 </div>
 
-                <div class="order-bottom">
-                  <div class="items">
-                    ${order.items
-                      .map(
-                        (item) => `
-                          <div class="item">
-                            <div class="item-title">${escapeHtml(item.title || "Item")}</div>
-                            ${item.variantTitle ? `<div class="item-variant">${escapeHtml(item.variantTitle)}</div>` : ""}
-                            <div class="item-footer">
-                              <span class="token">Qty ${escapeHtml(item.quantity || 0)}</span>
-                              ${item.sku ? `<span class="token">SKU ${escapeHtml(item.sku)}</span>` : ""}
-                            </div>
-                          </div>
-                        `
-                      )
+                <div class="order-footer">
+                  ${order.note ? `<p class="foot-note">${escapeHtml(order.note)}</p>` : `<p class="foot-note">${escapeHtml(location || "No note on this order.")}</p>`}
+                  <div class="aux">
+                    ${order.tags ? String(order.tags).split(",").map((tag) => `<span class="tag">${escapeHtml(tag.trim())}</span>`).join("") : ""}
+                    ${location ? `<span class="tag">${escapeHtml(location)}</span>` : ""}
+                    <span class="tag">${escapeHtml(order.fulfillmentStatus || "unfulfilled")}</span>
+                  </div>
+                  <div class="sku-list">
+                    ${(order.items || [])
+                      .filter((item) => item.sku)
+                      .slice(0, 4)
+                      .map((item) => `<div class="sku-line">${escapeHtml(item.sku)}${item.quantity ? ` · qty ${escapeHtml(item.quantity)}` : ""}</div>`)
                       .join("")}
                   </div>
-
-                  <aside class="summary">
-                    <div class="summary-box">
-                      <h4 class="summary-title">Order Summary</h4>
-                      <div class="summary-list">
-                        <div class="summary-line"><span>Customer</span><strong>${escapeHtml(customer)}</strong></div>
-                        <div class="summary-line"><span>Items</span><strong>${escapeHtml(order.itemCount || 0)}</strong></div>
-                        <div class="summary-line"><span>Shipping</span><strong>${escapeHtml(order.shippingName || "Not listed")}</strong></div>
-                      </div>
-                    </div>
-
-                    ${
-                      order.tags
-                        ? `
-                          <div class="summary-box">
-                            <h4 class="summary-title">Tags</h4>
-                            <p class="note">${escapeHtml(order.tags)}</p>
-                          </div>
-                        `
-                        : ""
-                    }
-
-                    ${
-                      order.note
-                        ? `
-                          <div class="summary-box">
-                            <h4 class="summary-title">Note</h4>
-                            <p class="note">${escapeHtml(order.note)}</p>
-                          </div>
-                        `
-                        : ""
-                    }
-                  </aside>
                 </div>
               </article>
             `;
@@ -672,12 +514,10 @@
 
       async function loadTransfers() {
         try {
-          messageEl.textContent = "Loading…";
           const response = await fetch("/api/transfers", { cache: "no-store" });
           const payload = await response.json();
           renderOrders(payload);
         } catch (error) {
-          loadStatusEl.textContent = "Error";
           renderEmpty(`Could not load Shopify orders: ${error.message}`);
         }
       }
