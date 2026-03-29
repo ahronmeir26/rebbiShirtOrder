@@ -364,7 +364,15 @@
 
       function buildSku(item) {
         const categoryCode = item.category === "mens" ? "M" : "B";
-        const collarCode = item.style === "chassidish" ? "P" : "S";
+        const collarMap = {
+          spread: "S",
+          cutaway: "C",
+          "extra cutaway": "V",
+          button: "B",
+          pointy: "P",
+          chassidish: "P"
+        };
+        const collarCode = collarMap[item.collar] || "S";
         const fitMap = {
           classic: "C",
           slim: "S",
