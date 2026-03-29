@@ -504,9 +504,9 @@ function cuffMenuResponse(baseUrl, sleeveName) {
       gather(baseUrl, {
         action: "/api/twilio/order/quantity",
         input: "dtmf",
-        numDigits: 2,
         finishOnKey: "#",
-        prompt: "Short sleeve was selected, so cuff is set to short sleeve automatically. Enter the quantity, then press pound, or press star to go back."
+        timeout: 3,
+        prompt: "Enter the quantity, then press pound, or press star to go back."
       }),
       say("We did not receive a quantity."),
       redirect(baseUrl, "/api/twilio/order/current")
