@@ -97,11 +97,11 @@ async function loadOrdersFromBlob() {
     for (const blob of Array.isArray(page.blobs) ? page.blobs : []) {
       try {
         const file = await get(blob.pathname, { access: "private" });
-        if (!file || !file.downloadUrl) {
+        if (!file || file.statusCode !== 200 || !file.blob?.downloadUrl) {
           continue;
         }
 
-        const response = await fetch(file.downloadUrl, {
+        const response = await fetch(file.blob.downloadUrl, {
           headers: {
             Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
           }

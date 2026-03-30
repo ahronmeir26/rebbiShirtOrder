@@ -64,6 +64,26 @@
         font-size: 0.95rem;
       }
 
+      .hero-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 16px;
+      }
+
+      .hero-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        padding: 0 18px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: white;
+        color: var(--ink);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
       .layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 340px;
@@ -203,6 +223,14 @@
           grid-template-columns: 1fr;
         }
 
+        .hero-actions {
+          justify-content: stretch;
+        }
+
+        .hero-link {
+          width: 100%;
+        }
+
         .controls {
           width: auto;
           max-width: none;
@@ -222,6 +250,9 @@
         <h1>Test IVR</h1>
         <p>Browser-based Twilio flow tester. This uses the real IVR routes and a fixed fake caller number so cart behavior is easy to reproduce.</p>
         <p class="meta">Fake caller: <code id="fake-number">+15555550123</code></p>
+        <div class="hero-actions">
+          <a class="hero-link" href="/">View Orders</a>
+        </div>
       </section>
 
       <section class="layout">
