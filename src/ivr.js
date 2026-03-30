@@ -963,6 +963,18 @@ function cartControlResponse(baseUrl, session, context, index, phase, selection)
 
   const safeIndex = Math.max(0, Math.min(index, session.cart.length - 1));
 
+  if (!selection) {
+    if (phase === "intro") {
+      return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, "detail"))]);
+    }
+
+    if (safeIndex >= session.cart.length - 1) {
+      return twiml([say("End of cart."), redirect(baseUrl, cartReturnPath(context))]);
+    }
+
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, "intro"))]);
+  }
+
   if (selection === "1") {
     const targetIndex = phase === "intro" ? Math.max(safeIndex - 1, 0) : safeIndex;
     return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, targetIndex, "intro"))]);
@@ -1134,7 +1146,7 @@ async function handleMainMenu(req, res, baseUrl) {
       return;
     }
 
-    xml(res, 200, postAddMenuResponse(baseUrl, session));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "voice", 0, "intro", true));
     return;
   }
 
