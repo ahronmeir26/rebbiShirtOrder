@@ -7,7 +7,6 @@
     <style>
       :root {
         --sky: #dce6f7;
-        --sky-strong: #c8d8f2;
         --navy: #24478f;
         --navy-deep: #1c3668;
         --ink: #2b3441;
@@ -15,10 +14,8 @@
         --workspace: #f1f3f7;
         --card: #ffffff;
         --line: #dde2ea;
-        --success: #3f8a6a;
-        --success-deep: #2f7458;
-        --warning: #f6c458;
-        --warning-ink: #614400;
+        --mist: #eef3fb;
+        --green-ink: #2d6d59;
         --shadow: 0 10px 26px rgba(19, 43, 84, 0.08);
       }
 
@@ -35,18 +32,14 @@
       }
 
       .topbar {
-        position: sticky;
-        top: 0;
-        z-index: 20;
         display: flex;
         justify-content: space-between;
         gap: 18px;
         align-items: center;
-        padding: 14px 18px;
-        background: rgba(255, 255, 255, 0.96);
+        padding: 18px 18px 14px;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
         border-bottom: 1px solid rgba(36, 71, 143, 0.12);
-        backdrop-filter: blur(10px);
-        box-shadow: 0 2px 12px rgba(17, 34, 68, 0.04);
+        box-shadow: 0 2px 12px rgba(17, 34, 68, 0.03);
       }
 
       .brand {
@@ -114,6 +107,8 @@
       }
 
       .shell {
+        max-width: 1380px;
+        margin: 0 auto;
         padding: 22px 18px 54px;
       }
 
@@ -141,7 +136,7 @@
       .orders {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 20px;
+        gap: 16px;
       }
 
       .empty {
@@ -160,28 +155,20 @@
         flex-direction: column;
         background: var(--card);
         border: 1px solid rgba(36, 71, 143, 0.12);
-        border-top: 5px solid var(--success);
-        border-radius: 18px;
-        box-shadow: var(--shadow);
+        border-radius: 16px;
+        box-shadow: 0 6px 18px rgba(19, 43, 84, 0.05);
         overflow: hidden;
       }
 
-      .order.urgent {
-        border-top-color: var(--warning);
-      }
-
       .order-body {
-        padding: 18px 18px 16px;
+        padding: 15px 15px 10px;
         display: flex;
         flex-direction: column;
         min-height: 0;
       }
 
       .order-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        align-items: flex-start;
+        display: block;
       }
 
       .order-number {
@@ -189,7 +176,7 @@
         gap: 10px;
         align-items: center;
         margin: 0;
-        font-size: 1.08rem;
+        font-size: 1.02rem;
         font-weight: 800;
         letter-spacing: -0.01em;
         color: #2f3743;
@@ -197,33 +184,16 @@
 
       .cube {
         color: var(--muted);
-        font-size: 0.86rem;
-      }
-
-      .status-pill {
-        flex: 0 0 auto;
-        padding: 8px 14px;
-        border-radius: 10px;
-        background: var(--success);
-        color: #fff;
-        font-size: 0.82rem;
-        font-weight: 700;
-        box-shadow: 0 4px 10px rgba(63, 138, 106, 0.22);
-      }
-
-      .status-pill.urgent {
-        background: var(--warning);
-        color: var(--warning-ink);
-        box-shadow: 0 4px 10px rgba(246, 196, 88, 0.24);
+        font-size: 0.72rem;
       }
 
       .customer {
         display: flex;
         gap: 8px;
         align-items: center;
-        margin-top: 10px;
+        margin-top: 8px;
         color: var(--muted);
-        font-size: 0.98rem;
+        font-size: 0.92rem;
       }
 
       .customer-icon {
@@ -231,29 +201,53 @@
       }
 
       .items {
-        margin-top: 18px;
-        font-size: 0.98rem;
-        line-height: 1.5;
+        margin-top: 14px;
+        font-size: 0.9rem;
+        line-height: 1.45;
         color: #333d4d;
-        min-height: 86px;
+        min-height: 0;
       }
 
-      .items p {
+      .items ul {
         margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+
+      .item-line {
+        padding: 9px 10px;
+        border-radius: 10px;
+        background: var(--mist);
+        border: 1px solid rgba(36, 71, 143, 0.08);
+      }
+
+      .item-name {
+        color: #333d4d;
+        font-weight: 600;
+      }
+
+      .item-meta {
+        margin-top: 3px;
+        font-size: 0.83rem;
+        color: var(--muted);
       }
 
       .meta-row {
         display: flex;
-        gap: 18px;
+        gap: 12px;
         align-items: center;
-        margin-top: 18px;
-        font-size: 0.98rem;
+        flex-wrap: wrap;
+        margin-top: 12px;
+        font-size: 0.84rem;
         color: #303846;
       }
 
       .price {
-        font-size: 1.05rem;
+        font-size: 0.86rem;
         font-weight: 700;
+        color: var(--navy-deep);
       }
 
       .source {
@@ -264,51 +258,20 @@
       .time {
         color: var(--muted);
         font-weight: 600;
-        margin-left: auto;
-      }
-
-      .action-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 12px;
-        align-items: center;
-        margin-top: 16px;
-      }
-
-      .fulfill-button {
-        appearance: none;
-        border: 0;
-        border-radius: 10px;
-        background: var(--success);
-        color: #fff;
-        padding: 12px 14px;
-        font: inherit;
-        font-weight: 700;
-        cursor: pointer;
-        box-shadow: 0 6px 14px rgba(63, 138, 106, 0.18);
-      }
-
-      .fulfill-button:hover {
-        background: var(--success-deep);
-      }
-
-      .print-mark {
-        color: var(--muted);
-        font-size: 1.05rem;
       }
 
       .order-footer {
         margin-top: auto;
-        padding: 16px 18px 18px;
+        padding: 10px 15px 13px;
         border-top: 1px solid var(--line);
-        background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(220,230,247,0.08) 100%);
+        background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(238,243,251,0.72) 100%);
       }
 
       .foot-note {
         margin: 0;
         color: var(--muted);
         line-height: 1.45;
-        font-size: 0.95rem;
+        font-size: 0.88rem;
         white-space: pre-wrap;
       }
 
@@ -316,28 +279,28 @@
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-top: 12px;
+        margin-top: 10px;
       }
 
       .tag {
         display: inline-flex;
         align-items: center;
-        padding: 6px 10px;
+        padding: 5px 9px;
         border-radius: 999px;
         background: rgba(36, 71, 143, 0.08);
         color: var(--navy-deep);
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         font-weight: 600;
       }
 
       .tag.location {
-        background: rgba(63, 138, 106, 0.1);
-        color: var(--success-deep);
+        background: rgba(45, 109, 89, 0.1);
+        color: var(--green-ink);
       }
 
       .tag.channel {
-        background: rgba(246, 196, 88, 0.18);
-        color: #745200;
+        background: rgba(36, 71, 143, 0.12);
+        color: var(--navy-deep);
       }
 
       .sku-list {
@@ -347,7 +310,7 @@
       }
 
       .sku-line {
-        font-size: 0.86rem;
+        font-size: 0.8rem;
         color: var(--muted);
       }
 
@@ -390,13 +353,13 @@
       <div class="brand">
         <div class="wordmark">A.I.STONE</div>
         <div class="brand-copy">
-          <h1 class="brand-title">Open Orders</h1>
-          <p class="brand-subtitle">All open unfulfilled Shopify orders</p>
+          <h1 class="brand-title">Transfers</h1>
+          <p class="brand-subtitle">Compact view of fully unfulfilled Shopify orders</p>
         </div>
       </div>
 
         <div class="top-actions">
-        <button class="ghost-button" type="button">Transfers</button>
+        <button class="ghost-button" type="button">Orders</button>
         <button class="ghost-button primary" id="refresh" type="button">Refresh</button>
       </div>
     </header>
@@ -405,7 +368,7 @@
       <section class="summary">
         <div class="summary-left">
           <span>◌</span>
-          <strong id="order-count-label">0 open orders</strong>
+          <strong id="order-count-label">0 orders</strong>
         </div>
         <div class="summary-right">
           <span>Last refresh:</span>
@@ -477,14 +440,14 @@
       }
 
       function renderEmpty(message) {
-        orderCountLabelEl.textContent = "0 open orders";
+        orderCountLabelEl.textContent = "0 orders";
         lastRefreshEl.textContent = formatLastRefresh();
         ordersEl.innerHTML = `<article class="empty">${escapeHtml(message)}</article>`;
       }
 
       function renderOrders(payload) {
         const orders = Array.isArray(payload.orders) ? payload.orders : [];
-        orderCountLabelEl.textContent = `${orders.length} open orders`;
+        orderCountLabelEl.textContent = `${orders.length} orders`;
         lastRefreshEl.textContent = formatLastRefresh();
 
         if (!payload.configured) {
@@ -499,36 +462,42 @@
 
         ordersEl.innerHTML = orders
           .map((order) => {
-            const urgent = estimateUrgency(order);
             const customer = order.customerName || order.shippingName || order.email || order.phone || "Unknown customer";
-            const itemSummary = summarizeItems(order.items || []);
             const amount = Number(order.totalPrice || 0);
             const location = [order.city, order.province].filter(Boolean).join(", ");
             const sourceName = String(order.sourceName || "").replace(/_/g, " ");
 
             return `
-              <article class="order${urgent ? " urgent" : ""}">
+              <article class="order">
                 <div class="order-body">
                   <div class="order-head">
-                    <h2 class="order-number"><span class="cube">◻</span>${escapeHtml(order.name || "Order")}</h2>
-                    <span class="status-pill${urgent ? " urgent" : ""}">${urgent ? "Getting Urgent" : "New Order"}</span>
+                    <h2 class="order-number"><span class="cube">▣</span>${escapeHtml(order.name || "Order")}</h2>
                   </div>
 
                   <div class="customer"><span class="customer-icon">◌</span>${escapeHtml(customer)}</div>
 
                   <div class="items">
-                    <p>${escapeHtml(itemSummary || "No line items listed.")}</p>
+                    <ul>
+                      ${(order.items || [])
+                        .map(
+                          (item) => `
+                            <li class="item-line">
+                              <div class="item-name">${escapeHtml(`${item.quantity || 0}x ${item.title || "Item"}`)}</div>
+                              <div class="item-meta">
+                                ${item.variantTitle ? escapeHtml(item.variantTitle) : ""}
+                                ${item.sku ? `${item.variantTitle ? " · " : ""}${escapeHtml(item.sku)}` : ""}
+                              </div>
+                            </li>
+                          `
+                        )
+                        .join("")}
+                    </ul>
                   </div>
 
                   <div class="meta-row">
                     <span class="price">${escapeHtml(formatMoney(amount, order.currency))}</span>
                     ${sourceName ? `<span class="source">${escapeHtml(sourceName)}</span>` : ""}
                     <span class="time">${escapeHtml(formatTime(order.createdAt))}</span>
-                  </div>
-
-                  <div class="action-row">
-                    <button class="fulfill-button" type="button">◌ Fulfill order</button>
-                    <span class="print-mark">⎙</span>
                   </div>
                 </div>
 
