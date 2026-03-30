@@ -66,7 +66,8 @@ https://your-ngrok-subdomain.ngrok-free.app/api/twilio/voice
 2. Do not set `BASE_URL` to your local `ngrok` URL in Vercel. On Vercel, the app uses the request host automatically.
 3. Optionally set `BASE_URL` in Vercel only if you want to force a specific production domain.
 4. Set `REPRESENTATIVE_NUMBER` if you want the transfer option to dial a real number.
-5. In Twilio, configure the voice webhook URL as:
+5. Attach a Vercel Blob store to the project so `BLOB_READ_WRITE_TOKEN` is available for durable order storage.
+6. In Twilio, configure the voice webhook URL as:
 
 ```text
 https://your-app.vercel.app/api/twilio/voice
@@ -82,6 +83,8 @@ curl -X POST http://localhost:3000/api/twilio/voice \
 ## Notes
 
 - Call sessions are stored in memory, which is acceptable for local development but not durable in serverless production.
-- Confirmed orders are written to `data/orders.json` when the filesystem allows it. On Vercel, treat that as best-effort only.
-- For production, replace in-memory sessions and file storage with a shared database or Redis.
+- Local development stores orders in `data/orders.json`.
+- Vercel production stores orders in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is configured.
+- Cart state is cleared after an order is placed or canceled, even though saved orders remain visible in the dashboard.
+- In-memory sessions are still acceptable for local development only. For production-grade cart/session recovery across cold starts, replace that with a shared store as well.
 - For production, add Twilio request signature validation before trusting inbound webhooks.

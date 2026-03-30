@@ -1,7 +1,8 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { handleHttpRequest, ensureDataStore } = require("./ivr");
+const { handleHttpRequest } = require("./ivr");
+const { ensureDataStore } = require("./order-store");
 const { handleTransfersRequest } = require("./transfers");
 
 loadLocalEnvFile();

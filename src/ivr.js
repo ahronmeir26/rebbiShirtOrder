@@ -1,8 +1,7 @@
 const fs = require("fs");
 const path = require("path");
+const { loadOrders, saveOrder } = require("./order-store");
 
-const dataDir = path.join(__dirname, "..", "data");
-const ordersFile = path.join(dataDir, "orders.json");
 const dashboardFile = path.join(__dirname, "..", "index.html");
 const logoFile = path.join(__dirname, "..", "logo-aistone.png");
 const pricingFile = path.join(__dirname, "..", "pricing.json");
@@ -73,16 +72,6 @@ const cuffs = {
 
 const sessions = new Map();
 const CHASSIDISH_COLLAR = { id: "pointy", name: "pointy", skuCode: "P" };
-
-function ensureDataStore() {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  if (!fs.existsSync(ordersFile)) {
-    fs.writeFileSync(ordersFile, "[]\n", "utf8");
-  }
-}
 
 function escapeXml(value) {
   return String(value)
@@ -490,13 +479,6 @@ function formatCartForSpeech(cart) {
 
 function cartQuantity(cart) {
   return cart.reduce((sum, item) => sum + item.quantity, 0);
-}
-
-function persistOrder(orderRecord) {
-  ensureDataStore();
-  const existing = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
-  existing.push(orderRecord);
-  fs.writeFileSync(ordersFile, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
 }
 
 function json(res, statusCode, payload) {
@@ -1396,9 +1378,9 @@ async function handlePostAddMenu(req, res, baseUrl) {
     };
 
     try {
-      persistOrder(orderRecord);
+      await saveOrder(orderRecord);
     } catch (_error) {
-      // File persistence is best-effort so the flow can still run on Vercel.
+      // Order persistence should not block the caller's IVR flow.
     }
 
     sessions.delete(key);
@@ -1429,30 +1411,29 @@ async function handlePostAddMenu(req, res, baseUrl) {
   xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/next"));
 }
 
-function routeRequest(req, res, pathname, baseUrl) {
+async function routeRequest(req, res, pathname, baseUrl) {
   if (pathname.startsWith("/api/twilio")) {
     logTwilioDebug("route", summarizeTwilioRequest(req, pathname));
   }
 
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     html(res, 200, fs.readFileSync(dashboardFile, "utf8"));
-    return Promise.resolve();
+    return;
   }
 
   if (req.method === "GET" && pathname === "/logo-aistone.png") {
     file(res, 200, "image/png", fs.readFileSync(logoFile));
-    return Promise.resolve();
+    return;
   }
 
   if (req.method === "GET" && (pathname === "/health" || pathname === "/api/health")) {
     json(res, 200, { status: "ok" });
-    return Promise.resolve();
+    return;
   }
 
   if (req.method === "GET" && (pathname === "/orders" || pathname === "/api/orders")) {
     try {
-      ensureDataStore();
-      const orders = JSON.parse(fs.readFileSync(ordersFile, "utf8")).map((order) => ({
+      const orders = (await loadOrders()).map((order) => ({
         ...order,
         items: Array.isArray(order.items) ? order.items.map(normalizeStoredItem) : []
       }));
@@ -1460,7 +1441,7 @@ function routeRequest(req, res, pathname, baseUrl) {
     } catch (_error) {
       json(res, 200, []);
     }
-    return Promise.resolve();
+    return;
   }
 
   if (req.method === "POST" && pathname === "/api/twilio/voice") {
@@ -1524,7 +1505,6 @@ function routeRequest(req, res, pathname, baseUrl) {
   }
 
   notFound(res);
-  return Promise.resolve();
 }
 
 async function handleHttpRequest(req, res, options = {}) {
@@ -1557,6 +1537,5 @@ async function handleHttpRequest(req, res, options = {}) {
 }
 
 module.exports = {
-  handleHttpRequest,
-  ensureDataStore
+  handleHttpRequest
 };
