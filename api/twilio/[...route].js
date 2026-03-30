@@ -16,10 +16,11 @@ module.exports = async function handler(req, res) {
 function buildRequestUrl(req) {
   const currentUrl = String(req.url || "");
   const current = new URL(currentUrl || "/api/twilio/voice", "http://localhost");
-  const routeSegments = Array.isArray(req.query?.route)
-    ? req.query.route
-    : req.query?.route
-      ? [req.query.route]
+  const routeParam = req.query?.route || req.query?.["...route"];
+  const routeSegments = Array.isArray(routeParam)
+    ? routeParam
+    : routeParam
+      ? [routeParam]
       : [];
 
   if (routeSegments.length === 0) {

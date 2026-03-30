@@ -217,6 +217,10 @@ function logTwilioDebug(event, details) {
   console.log(`[twilio-debug] ${event} ${safeJson(details)}`);
 }
 
+function getTwilioRouteParam(req, current) {
+  return req.query?.route || req.query?.["...route"] || current.searchParams.getAll("route") || current.searchParams.getAll("...route");
+}
+
 function resolvePathname(req) {
   const current = new URL(String(req.url || "/"), "http://localhost");
 
@@ -224,7 +228,7 @@ function resolvePathname(req) {
     return current.pathname;
   }
 
-  const routeParam = req.query?.route || current.searchParams.getAll("route");
+  const routeParam = getTwilioRouteParam(req, current);
   const routeSegments = Array.isArray(routeParam) ? routeParam : routeParam ? [routeParam] : [];
 
   if (routeSegments.length === 0) {
