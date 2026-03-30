@@ -4,7 +4,7 @@
   "description": "Twilio webhook IVR app for taking phone orders",
   "main": "src/local-server.js",
   "dependencies": {
-    "@vercel/blob": "^1.1.1"
+    "@vercel/blob": "^2.3.0"
   },
   "scripts": {
     "dev": "node src/local-server.js",
