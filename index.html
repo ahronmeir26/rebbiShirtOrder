@@ -351,6 +351,7 @@
       <section class="toolbar">
         <div class="status" id="status">Loading orders…</div>
         <div class="toolbar-right">
+          <button class="secondary" id="testivr-button">Test IVR</button>
           <label class="status">
             <input type="checkbox" id="auto-refresh" checked />
             Auto refresh
@@ -369,6 +370,7 @@
       const revenueEl = document.getElementById("revenue-total");
       const lastRefreshEl = document.getElementById("last-refresh");
       const statusEl = document.getElementById("status");
+      const testIvrButton = document.getElementById("testivr-button");
       const refreshButton = document.getElementById("refresh-button");
       const autoRefresh = document.getElementById("auto-refresh");
       let timer = null;
@@ -525,6 +527,9 @@
       }
 
       refreshButton.addEventListener("click", loadOrders);
+      testIvrButton.addEventListener("click", () => {
+        window.location.href = "/testivr";
+      });
       autoRefresh.addEventListener("change", setAutoRefresh);
 
       loadOrders();

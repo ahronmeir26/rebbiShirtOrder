@@ -3,7 +3,9 @@ const path = require("path");
 
 const dataDir = path.join(__dirname, "..", "data");
 const ordersFile = path.join(dataDir, "orders.json");
+const sessionsFile = path.join(dataDir, "sessions.json");
 const ORDER_BLOB_PREFIX = "ivr-orders/";
+const SESSION_BLOB_PREFIX = "ivr-sessions/";
 
 let cachedBlobSdk;
 
@@ -14,6 +16,10 @@ function ensureDataStore() {
 
   if (!fs.existsSync(ordersFile)) {
     fs.writeFileSync(ordersFile, "[]\n", "utf8");
+  }
+
+  if (!fs.existsSync(sessionsFile)) {
+    fs.writeFileSync(sessionsFile, "{}\n", "utf8");
   }
 }
 
@@ -62,6 +68,44 @@ async function loadOrders() {
   return loadOrdersFromFile();
 }
 
+async function loadSession(sessionKey) {
+  if (!sessionKey) {
+    return null;
+  }
+
+  if (canUseBlobStore()) {
+    return loadSessionFromBlob(sessionKey);
+  }
+
+  return loadSessionFromFile(sessionKey);
+}
+
+async function saveSession(sessionKey, sessionRecord) {
+  if (!sessionKey) {
+    return;
+  }
+
+  if (canUseBlobStore()) {
+    await saveSessionToBlob(sessionKey, sessionRecord);
+    return;
+  }
+
+  saveSessionToFile(sessionKey, sessionRecord);
+}
+
+async function deleteSession(sessionKey) {
+  if (!sessionKey) {
+    return;
+  }
+
+  if (canUseBlobStore()) {
+    await deleteSessionFromBlob(sessionKey);
+    return;
+  }
+
+  deleteSessionFromFile(sessionKey);
+}
+
 function saveOrderToFile(orderRecord) {
   ensureDataStore();
   const existing = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
@@ -76,6 +120,37 @@ function loadOrdersFromFile() {
   } catch (_error) {
     return [];
   }
+}
+
+function readSessionsFromFile() {
+  ensureDataStore();
+  return JSON.parse(fs.readFileSync(sessionsFile, "utf8"));
+}
+
+function writeSessionsToFile(sessions) {
+  ensureDataStore();
+  fs.writeFileSync(sessionsFile, `${JSON.stringify(sessions, null, 2)}\n`, "utf8");
+}
+
+function loadSessionFromFile(sessionKey) {
+  try {
+    const sessions = readSessionsFromFile();
+    return sessions[sessionKey] || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveSessionToFile(sessionKey, sessionRecord) {
+  const sessions = readSessionsFromFile();
+  sessions[sessionKey] = sessionRecord;
+  writeSessionsToFile(sessions);
+}
+
+function deleteSessionFromFile(sessionKey) {
+  const sessions = readSessionsFromFile();
+  delete sessions[sessionKey];
+  writeSessionsToFile(sessions);
 }
 
 async function saveOrderToBlob(orderRecord) {
@@ -126,8 +201,62 @@ async function loadOrdersFromBlob() {
   return sortOrdersDescending(orders);
 }
 
+function blobPathnameForSession(sessionKey) {
+  const safeKey = String(sessionKey).replace(/[^a-zA-Z0-9:_-]/g, "-");
+  return `${SESSION_BLOB_PREFIX}${safeKey}.json`;
+}
+
+async function saveSessionToBlob(sessionKey, sessionRecord) {
+  const { put } = blobSdk();
+  await put(blobPathnameForSession(sessionKey), JSON.stringify(sessionRecord, null, 2), {
+    access: "private",
+    addRandomSuffix: false,
+    contentType: "application/json"
+  });
+}
+
+async function loadSessionFromBlob(sessionKey) {
+  const { get } = blobSdk();
+
+  try {
+    const file = await get(blobPathnameForSession(sessionKey), { access: "private" });
+    if (!file || file.statusCode !== 200 || !file.blob?.downloadUrl) {
+      return null;
+    }
+
+    const response = await fetch(file.blob.downloadUrl, {
+      headers: {
+        Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return JSON.parse(await response.text());
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function deleteSessionFromBlob(sessionKey) {
+  const { del } = blobSdk();
+
+  try {
+    await del(blobPathnameForSession(sessionKey), {
+      token: process.env.BLOB_READ_WRITE_TOKEN
+    });
+  } catch (_error) {
+    // Best-effort cleanup.
+  }
+}
+
 module.exports = {
+  deleteSession,
   ensureDataStore,
+  loadSession,
   loadOrders,
+  saveSession,
   saveOrder
 };
