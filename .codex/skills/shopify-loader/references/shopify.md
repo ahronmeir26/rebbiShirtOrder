@@ -150,7 +150,7 @@ Batching rule in current code:
 
 Practical note:
 
-- A useful transfer filter here is: order tagged `Lakewood`, item not available in `Lakewood`, and item available in `PIO - A . I . S T O N E`.
+- A useful transfer filter here is: item not available in `Lakewood`, and item available in `PIO - A . I . S T O N E`.
 - In the current implementation, expose this stock data on each normalized line item as:
   - `item.stock.lakewood.available`
   - `item.stock.lakewood.onHand`
@@ -222,9 +222,8 @@ The current `/transfers` page uses two views backed by the same `/api/transfers`
 
 Current stock filter:
 
-- `Lakewood orders missing Lakewood stock but in stock at PIO`
+- `Not in stock in Lakewood but in stock at PIO`
 - Logic:
-  - `order.isLakewoodTagged === true`
   - `item.stock.lakewood.available <= 0`
   - `item.stock.pio.available > 0`
 

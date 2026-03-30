@@ -485,7 +485,7 @@
 
         <div class="filters" id="filters" hidden>
           <button class="filter-chip active" type="button" data-filter="all">All stock items</button>
-          <button class="filter-chip" type="button" data-filter="lakewood-pio">Lakewood orders missing Lakewood stock but in stock at PIO</button>
+          <button class="filter-chip" type="button" data-filter="lakewood-pio">Not in stock in Lakewood but in stock at PIO</button>
         </div>
       </section>
 
@@ -543,7 +543,6 @@
 
       function itemMatchesLakewoodPioFilter(order, item) {
         return Boolean(
-          order.isLakewoodTagged &&
           Number(item.stock?.lakewood?.available || 0) <= 0 &&
           Number(item.stock?.pio?.available || 0) > 0
         );
