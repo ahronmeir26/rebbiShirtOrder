@@ -111,6 +111,22 @@ function buildBaseUrl(req, envBaseUrl) {
   return `${forwardedProto}://${forwardedHost}`;
 }
 
+function isVercelRuntime() {
+  return String(process.env.VERCEL || "").toLowerCase() === "1";
+}
+
+function buildTwilioRouteUrl(baseUrl, routePath) {
+  if (!isVercelRuntime()) {
+    return `${baseUrl}${routePath}`;
+  }
+
+  const routeUrl = new URL(routePath, "http://localhost");
+  const route = routeUrl.pathname.replace(/^\/api\/twilio\/?/, "");
+  const params = new URLSearchParams(routeUrl.search);
+  params.set("...route", route || "voice");
+  return `${baseUrl}/api/twilio/${route || "voice"}?${params.toString()}`;
+}
+
 function twiml(parts) {
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${parts.join("")}</Response>`;
 }
@@ -124,7 +140,7 @@ function gather(baseUrl, { action, prompt, numDigits, hints, finishOnKey = "#", 
   const hintsAttr = hints ? ` hints="${escapeXml(hints)}"` : "";
   const finishAttr = finishOnKey ? ` finishOnKey="${escapeXml(finishOnKey)}"` : "";
   const timeoutAttr = timeout ? ` timeout="${timeout}"` : "";
-  const actionUrl = `${baseUrl}${action}`;
+  const actionUrl = buildTwilioRouteUrl(baseUrl, action);
 
   return [
     `<Gather input="${escapeXml(input)}" method="POST" action="${escapeXml(actionUrl)}"${digitAttr}${finishAttr}${hintsAttr}${timeoutAttr}>`,
@@ -134,7 +150,7 @@ function gather(baseUrl, { action, prompt, numDigits, hints, finishOnKey = "#", 
 }
 
 function redirect(baseUrl, routePath) {
-  return `<Redirect method="POST">${escapeXml(`${baseUrl}${routePath}`)}</Redirect>`;
+  return `<Redirect method="POST">${escapeXml(buildTwilioRouteUrl(baseUrl, routePath))}</Redirect>`;
 }
 
 function hangup() {
