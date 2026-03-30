@@ -10,6 +10,8 @@ function buildRequestUrl(req) {
   const step = String(req.query?.step || "current").trim();
   const search = new URLSearchParams(current.search);
   search.delete("step");
+  search.delete("route");
+  search.delete("...route");
 
   const queryString = search.toString();
   const pathname = `/api/twilio/order/${step}`;

@@ -12,6 +12,8 @@ function buildRequestUrl(req) {
   const search = new URLSearchParams(current.search);
   search.delete("section");
   search.delete("step");
+  search.delete("route");
+  search.delete("...route");
 
   const segments = [section, step].filter(Boolean);
   const pathname = segments.length ? `/api/twilio/${segments.join("/")}` : "/api/twilio/voice";

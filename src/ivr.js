@@ -119,15 +119,7 @@ function isVercelRuntime() {
 }
 
 function buildTwilioRouteUrl(baseUrl, routePath) {
-  if (!isVercelRuntime()) {
-    return `${baseUrl}${routePath}`;
-  }
-
-  const routeUrl = new URL(routePath, "http://localhost");
-  const route = routeUrl.pathname.replace(/^\/api\/twilio\/?/, "");
-  const params = new URLSearchParams(routeUrl.search);
-  params.set("...route", route || "voice");
-  return `${baseUrl}/api/twilio/${route || "voice"}?${params.toString()}`;
+  return `${baseUrl}${routePath}`;
 }
 
 function twiml(parts) {

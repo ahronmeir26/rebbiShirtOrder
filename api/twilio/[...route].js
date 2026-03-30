@@ -29,6 +29,7 @@ function buildRequestUrl(req) {
 
   const search = new URLSearchParams(current.search);
   search.delete("route");
+  search.delete("...route");
 
   const queryString = search.toString();
   const pathname = `/api/twilio/${routeSegments.join("/")}`;
