@@ -12,6 +12,8 @@ Read [references/shopify.md](references/shopify.md) for:
 - required environment variables
 - recommended request shape for Shopify Admin API
 - unfulfilled order loading for `/transfers`
+- inventory-by-location loading for `/transfers`
+- stock tab and Lakewood/PIO filter behavior
 - pagination and failure handling guidance
 
 ## Rules
@@ -20,3 +22,4 @@ Read [references/shopify.md](references/shopify.md) for:
 2. Prefer server-side fetches with `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_ADMIN_ACCESS_TOKEN`, and `SHOPIFY_API_VERSION`.
 3. Return normalized JSON from API routes and render UI pages separately.
 4. For missing credentials, return a clear non-crashing response that explains what env vars are missing.
+5. When extending `/transfers`, preserve the split between the `Orders` tab and the inventory-aware `Stock` tab instead of mixing stock logic into the default order view.

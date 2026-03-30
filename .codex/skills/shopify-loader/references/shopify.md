@@ -69,6 +69,37 @@ To show stock by fulfillment location for order items:
 Practical note:
 
 - A useful transfer filter here is: order tagged `Lakewood`, item not available in `Lakewood`, and item available in `PIO - A . I . S T O N E`.
+- In the current implementation, expose this stock data on each normalized line item as:
+  - `item.stock.lakewood.available`
+  - `item.stock.lakewood.onHand`
+  - `item.stock.lakewood.committed`
+  - `item.stock.pio.available`
+  - `item.stock.pio.onHand`
+  - `item.stock.pio.committed`
+- Also expose `order.isLakewoodTagged` as a boolean derived from the order tags.
+
+## Transfers UI behavior
+
+The current `/transfers` page uses two views backed by the same `/api/transfers` payload:
+
+- `Orders` tab
+  Shows the compact order cards without inventory detail.
+- `Stock` tab
+  Shows the same orders filtered down to stock-aware line items with Lakewood and PIO quantity pills.
+
+Current stock filter:
+
+- `Lakewood orders missing Lakewood stock but in stock at PIO`
+- Logic:
+  - `order.isLakewoodTagged === true`
+  - `item.stock.lakewood.available <= 0`
+  - `item.stock.pio.available > 0`
+
+Verified result during implementation:
+
+- `/api/transfers` returned 30 qualifying orders
+- 54 line items had stock data
+- 2 line items matched the Lakewood/PIO transfer filter at the time of verification
 
 ## Pagination
 
