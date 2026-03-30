@@ -7,6 +7,7 @@
     <style>
       :root {
         --sky: #dce6f7;
+        --sky-deep: #c7d8f4;
         --navy: #24478f;
         --navy-deep: #1c3668;
         --ink: #2b3441;
@@ -15,7 +16,10 @@
         --card: #ffffff;
         --line: #dde2ea;
         --mist: #f4f7fc;
+        --mist-strong: #e7eefb;
         --green-ink: #2d6d59;
+        --rose: #f3e3de;
+        --sand: #f6eed8;
         --shadow: 0 8px 24px rgba(19, 43, 84, 0.05);
       }
 
@@ -40,6 +44,17 @@
         background: #ffffff;
         border-bottom: 1px solid rgba(36, 71, 143, 0.12);
         box-shadow: 0 1px 0 rgba(17, 34, 68, 0.03);
+        position: relative;
+      }
+
+      .topbar::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 4px;
+        background: var(--sky-deep);
       }
 
       .brand {
@@ -69,6 +84,7 @@
         font-size: clamp(1.35rem, 2vw, 1.85rem);
         font-weight: 600;
         letter-spacing: -0.02em;
+        color: var(--navy-deep);
       }
 
       .brand-subtitle {
@@ -87,7 +103,7 @@
       .ghost-button {
         appearance: none;
         border: 1px solid rgba(36, 71, 143, 0.18);
-        background: transparent;
+        background: rgba(36, 71, 143, 0.04);
         color: #363f4f;
         border-radius: 999px;
         padding: 10px 15px;
@@ -133,6 +149,13 @@
         align-items: center;
       }
 
+      .summary-left strong {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--mist-strong);
+        color: var(--navy-deep);
+      }
+
       .orders {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -160,6 +183,21 @@
         overflow: hidden;
       }
 
+      .order::before {
+        content: "";
+        display: block;
+        height: 6px;
+        background: var(--sky-deep);
+      }
+
+      .order:nth-child(3n + 2)::before {
+        background: var(--sand);
+      }
+
+      .order:nth-child(3n + 3)::before {
+        background: var(--rose);
+      }
+
       .order-body {
         padding: 14px 14px 8px;
         display: flex;
@@ -176,7 +214,7 @@
         font-size: 0.98rem;
         font-weight: 600;
         letter-spacing: 0;
-        color: #2f3743;
+        color: var(--navy-deep);
       }
 
       .customer {
@@ -213,6 +251,14 @@
         border-radius: 9px;
         background: var(--mist);
         border: 1px solid rgba(36, 71, 143, 0.08);
+      }
+
+      .order:nth-child(3n + 2) .item-line {
+        background: #faf7ef;
+      }
+
+      .order:nth-child(3n + 3) .item-line {
+        background: #fbf4f2;
       }
 
       .item-name {
@@ -279,7 +325,7 @@
         align-items: center;
         padding: 4px 8px;
         border-radius: 999px;
-        background: rgba(36, 71, 143, 0.08);
+        background: var(--mist-strong);
         color: var(--navy-deep);
         font-size: 0.72rem;
         font-weight: 500;
