@@ -142,6 +142,19 @@ function hangup() {
 }
 
 function parseFormBody(req) {
+  if (req.body && typeof req.body === "object") {
+    return Promise.resolve(req.body);
+  }
+
+  if (typeof req.body === "string") {
+    const params = new URLSearchParams(req.body);
+    const data = {};
+    for (const [key, value] of params.entries()) {
+      data[key] = value;
+    }
+    return Promise.resolve(data);
+  }
+
   return new Promise((resolve, reject) => {
     let body = "";
 
@@ -164,6 +177,24 @@ function parseFormBody(req) {
 
     req.on("error", reject);
   });
+}
+
+function resolvePathname(req) {
+  const current = new URL(String(req.url || "/"), "http://localhost");
+
+  if (current.pathname !== "/api/twilio/[...route]") {
+    return current.pathname;
+  }
+
+  const routeParam = req.query?.route || current.searchParams.getAll("route");
+  const routeSegments = Array.isArray(routeParam) ? routeParam : routeParam ? [routeParam] : [];
+
+  if (routeSegments.length === 0) {
+    return current.pathname;
+  }
+
+  const flattened = routeSegments.flatMap((segment) => String(segment).split("/").filter(Boolean));
+  return `/api/twilio/${flattened.join("/")}`;
 }
 
 function getSession(callSid) {
@@ -1376,7 +1407,7 @@ function routeRequest(req, res, pathname, baseUrl) {
 
 async function handleHttpRequest(req, res, options = {}) {
   try {
-    const pathname = new URL(req.url, "http://localhost").pathname;
+    const pathname = resolvePathname(req);
     const baseUrl = buildBaseUrl(req, options.baseUrl || process.env.BASE_URL);
     await routeRequest(req, res, pathname, baseUrl);
   } catch (error) {
