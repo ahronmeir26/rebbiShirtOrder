@@ -210,6 +210,7 @@ async function saveSessionToBlob(sessionKey, sessionRecord) {
   const { put } = blobSdk();
   await put(blobPathnameForSession(sessionKey), JSON.stringify(sessionRecord, null, 2), {
     access: "private",
+    allowOverwrite: true,
     addRandomSuffix: false,
     contentType: "application/json"
   });
