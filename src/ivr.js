@@ -72,6 +72,7 @@ const cuffs = {
 };
 
 const sessions = new Map();
+const CHASSIDISH_COLLAR = { id: "pointy", name: "pointy", skuCode: "P" };
 
 function ensureDataStore() {
   if (!fs.existsSync(dataDir)) {
@@ -283,8 +284,18 @@ function resolvePathname(req) {
   return `/api/twilio/${flattened.join("/")}`;
 }
 
-function getSession(callSid) {
-  const key = callSid || `local-${Date.now()}`;
+function sessionKeyForCaller(callSid, from) {
+  const caller = String(from || "").trim();
+
+  if (caller) {
+    return `phone:${caller}`;
+  }
+
+  return callSid || `local-${Date.now()}`;
+}
+
+function getSession(callSid, from) {
+  const key = sessionKeyForCaller(callSid, from);
 
   if (!sessions.has(key)) {
     sessions.set(key, {
@@ -377,6 +388,18 @@ function pendingItemFromRequest(req, session) {
   }
 
   return decoded;
+}
+
+function ensurePendingItemDefaults(item) {
+  if (!item || !item.style) {
+    return item;
+  }
+
+  if (item.style.id === "chassidish" || item.style.name === "chassidish") {
+    item.collar = { ...CHASSIDISH_COLLAR };
+  }
+
+  return item;
 }
 
 function skuCategoryCode(category) {
@@ -654,7 +677,7 @@ function mainMenuResponse(baseUrl) {
       numDigits: 1,
       hints: "order shirts, cart, hours, representative",
       prompt:
-        "Welcome to Rebbi shirt ordering. Press 1 to order shirts. Press 2 to hear what is in your cart. Press 3 for store hours. Press 4 to speak with a representative."
+        "Welcome to Rebbi shirt ordering. We remember your cart by your phone number. Press 1 to order shirts. Press 2 to hear what is in your cart. Press 3 for store hours. Press 4 to speak with a representative."
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, "/api/twilio/voice")
@@ -799,6 +822,7 @@ function postAddMenuResponse(baseUrl, session) {
   const totalUnits = cartQuantity(session.cart);
   const totalPrice = calculateOrderTotal(session.cart);
   return twiml([
+    say("That item has been added to your cart. We will remember your cart by your phone number."),
     gather(baseUrl, {
       action: "/api/twilio/order/next",
       input: "dtmf",
@@ -847,7 +871,7 @@ function describePendingItem(item) {
 }
 
 function currentOrderMenuResponse(baseUrl, session) {
-  const item = session.pendingItem || {};
+  const item = ensurePendingItemDefaults(session.pendingItem || {});
 
   if (!item.category) {
     return categoryMenuResponse(baseUrl);
@@ -893,7 +917,7 @@ function goToPreviousOrderMenu(baseUrl, session) {
     return categoryMenuResponse(baseUrl);
   }
 
-  const item = session.pendingItem;
+  const item = ensurePendingItemDefaults(session.pendingItem);
 
   if (item.cuff) {
     delete item.cuff;
@@ -946,13 +970,13 @@ function goToPreviousOrderMenu(baseUrl, session) {
 
 async function handleVoiceWebhook(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  getSession(form.CallSid);
+  getSession(form.CallSid, form.From);
   xml(res, 200, mainMenuResponse(baseUrl));
 }
 
 async function handleMainMenu(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   const selection = normalizeMainSelection(form.Digits || form.SpeechResult);
 
   if (selection === "1") {
@@ -998,15 +1022,17 @@ async function handleOrderStart(_req, res, baseUrl) {
 
 async function handleCurrentOrderMenu(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
+  ensurePendingItemDefaults(session.pendingItem);
   xml(res, 200, currentOrderMenuResponse(baseUrl, session));
 }
 
 async function handlePreviousOrderMenu(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
+  ensurePendingItemDefaults(session.pendingItem);
   xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
 }
 
@@ -1016,14 +1042,14 @@ function wantsPreviousMenu(form) {
 
 async function restartOrderFlow(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   delete session.pendingItem;
   xml(res, 200, categoryMenuResponse(baseUrl));
 }
 
 async function handleCategorySelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   const selection = normalizeCategorySelection(form.Digits || form.SpeechResult);
   const category = categories[selection];
 
@@ -1038,7 +1064,7 @@ async function handleCategorySelection(req, res, baseUrl) {
 
 async function handleStyleSelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
 
   if (wantsPreviousMenu(form)) {
@@ -1062,7 +1088,7 @@ async function handleStyleSelection(req, res, baseUrl) {
   session.pendingItem.style = style;
 
   if (style.id === "chassidish") {
-    session.pendingItem.collar = { id: "pointy", name: "pointy", skuCode: "P" };
+    session.pendingItem.collar = { ...CHASSIDISH_COLLAR };
     xml(res, 200, sizeMenuResponse(baseUrl, session.pendingItem));
     return;
   }
@@ -1073,8 +1099,9 @@ async function handleStyleSelection(req, res, baseUrl) {
 
 async function handleCollarSelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
+  ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
     xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
@@ -1100,8 +1127,9 @@ async function handleCollarSelection(req, res, baseUrl) {
 
 async function handleSizeSelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
+  ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
     xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
@@ -1127,8 +1155,9 @@ async function handleSizeSelection(req, res, baseUrl) {
 
 async function handleSleeveSelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
+  ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
     xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
@@ -1154,8 +1183,9 @@ async function handleSleeveSelection(req, res, baseUrl) {
 
 async function handleFitSelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
+  ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
     xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
@@ -1181,8 +1211,9 @@ async function handleFitSelection(req, res, baseUrl) {
 
 async function handlePocketSelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
+  ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
     xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
@@ -1215,7 +1246,8 @@ async function handlePocketSelection(req, res, baseUrl) {
 
 async function handleCuffSelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
+  ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
     xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
@@ -1241,7 +1273,7 @@ async function handleCuffSelection(req, res, baseUrl) {
 
 async function handleQuantitySelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = getSession(form.CallSid);
+  const { session } = getSession(form.CallSid, form.From);
   const stateParam = new URL(req.url, "http://localhost").searchParams.get("state");
 
   if (wantsPreviousMenu(form)) {
@@ -1249,7 +1281,7 @@ async function handleQuantitySelection(req, res, baseUrl) {
     return;
   }
 
-  const pendingItem = session.pendingItem || decodePendingItem(stateParam);
+  const pendingItem = ensurePendingItemDefaults(session.pendingItem || decodePendingItem(stateParam));
 
   if (
     !pendingItem ||
@@ -1313,7 +1345,7 @@ async function handleQuantitySelection(req, res, baseUrl) {
 
 async function handlePostAddMenu(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { key, session } = getSession(form.CallSid);
+  const { key, session } = getSession(form.CallSid, form.From);
 
   if (wantsPreviousMenu(form)) {
     if (session.cart.length === 0) {
@@ -1355,7 +1387,7 @@ async function handlePostAddMenu(req, res, baseUrl) {
   if (selection === "3") {
     const orderRecord = {
       id: `${key}-${Date.now()}`,
-      callSid: key,
+      callSid: form.CallSid || key,
       caller: form.From || "unknown",
       createdAt: new Date().toISOString(),
       items: session.cart.map(normalizeStoredItem),
