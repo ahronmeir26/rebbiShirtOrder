@@ -162,7 +162,8 @@
 
       .orders {
         display: grid;
-        gap: 12px;
+        gap: 16px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       .empty {
@@ -176,10 +177,12 @@
 
       .order {
         border: 1px solid var(--line);
-        background: var(--panel);
-        border-radius: 18px;
-        padding: 16px 18px;
-        box-shadow: 0 8px 22px rgba(36, 71, 143, 0.05);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.98)),
+          var(--panel);
+        border-radius: 20px;
+        padding: 18px;
+        box-shadow: 0 14px 30px rgba(36, 71, 143, 0.08);
       }
 
       .order-head {
@@ -188,37 +191,45 @@
         gap: 12px;
         align-items: flex-start;
         flex-wrap: wrap;
-        margin-bottom: 12px;
+        margin-bottom: 14px;
+      }
+
+      .order-meta {
+        display: grid;
+        gap: 4px;
       }
 
       .order-id {
         font-size: 0.75rem;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
         color: var(--muted);
       }
 
-      .sku-line {
-        margin: 0 0 6px;
-        font-size: 0.88rem;
+      .order-total {
+        margin: 14px 0 0;
+        padding-top: 12px;
+        border-top: 1px solid rgba(200, 215, 238, 0.9);
+        font-size: 1rem;
         font-weight: 700;
         color: var(--accent-deep);
       }
 
       .order-time {
         color: var(--muted);
-        font-size: 0.9rem;
+        font-size: 0.86rem;
       }
 
       .caller {
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        padding: 6px 10px;
+        padding: 7px 11px;
         border-radius: 999px;
-        background: var(--accent-soft);
+        background: linear-gradient(135deg, var(--accent-soft), #edf3ff);
         color: var(--accent-deep);
         font-size: 0.86rem;
+        font-weight: 600;
       }
 
       .items {
@@ -227,10 +238,10 @@
       }
 
       .item {
-        padding: 12px 14px;
+        padding: 12px 13px;
         border-radius: 12px;
-        background: var(--panel-alt);
-        border: 1px solid rgba(109, 158, 232, 0.18);
+        background: linear-gradient(180deg, rgba(238, 244, 255, 0.95), rgba(255, 255, 255, 0.9));
+        border: 1px solid rgba(109, 158, 232, 0.2);
       }
 
       .item-top {
@@ -244,31 +255,51 @@
       .item-title {
         font-weight: 700;
         font-size: 0.96rem;
+        line-height: 1.25;
       }
 
       .qty {
-        color: var(--good);
+        color: white;
         font-weight: 700;
-        font-size: 0.9rem;
+        font-size: 0.8rem;
+        background: var(--accent-deep);
+        border-radius: 999px;
+        padding: 4px 8px;
       }
 
       .chips {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
+      }
+
+      .item-line {
+        margin: 6px 0 0;
+        font-size: 0.82rem;
+        color: var(--muted);
       }
 
       .chip {
         border: 1px solid var(--line);
         border-radius: 999px;
         padding: 5px 8px;
-        font-size: 0.82rem;
-        background: rgba(255, 255, 255, 0.75);
+        font-size: 0.78rem;
+        background: rgba(255, 255, 255, 0.88);
+      }
+
+      @media (max-width: 1040px) {
+        .orders {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
 
       @media (max-width: 720px) {
         .shell {
           padding: 18px 14px 40px;
+        }
+
+        .orders {
+          grid-template-columns: 1fr;
         }
 
         .hero,
@@ -429,7 +460,7 @@
             return `
               <article class="order">
                 <div class="order-head">
-                  <div>
+                  <div class="order-meta">
                     <div class="order-id">Order record: ${order.id || "Order"}</div>
                     <div class="order-time">${formatTime(order.createdAt)}</div>
                   </div>
@@ -444,8 +475,8 @@
                             <div class="item-title">${item.category || ""} ${item.style || ""} twill shirt</div>
                             <div class="qty">Qty ${item.quantity || 0}</div>
                           </div>
-                          <p class="sku-line">SKU: ${item.sku || buildSku(item)}</p>
-                          <p class="sku-line">Line Total: ${formatMoney(item.lineTotal || 0)}</p>
+                          <p class="item-line">SKU ${item.sku || buildSku(item)}</p>
+                          <p class="item-line">Line total ${formatMoney(item.lineTotal || 0)}</p>
                           <div class="chips">
                             ${chip("Size", item.size)}
                             ${chip("Sleeve", item.sleeve)}
@@ -459,7 +490,7 @@
                     )
                     .join("")}
                 </section>
-                <p class="sku-line">Order Total: ${formatMoney(order.totalPrice || 0)}</p>
+                <p class="order-total">Order Total: ${formatMoney(order.totalPrice || 0)}</p>
               </article>
             `;
           })

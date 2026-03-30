@@ -3,9 +3,10 @@ const path = require("path");
 const { loadOrders, saveOrder } = require("./order-store");
 
 const dashboardFile = path.join(__dirname, "..", "index.html");
+const testIvrFile = path.join(__dirname, "..", "testivr", "index.html");
 const logoFile = path.join(__dirname, "..", "logo-aistone.png");
 const pricingFile = path.join(__dirname, "..", "pricing.json");
-const DEFAULT_VOICE = process.env.TTS_VOICE || "Polly.Joanna-Neural";
+const DEFAULT_VOICE = process.env.TTS_VOICE || "Google.en-US-Standard-C";
 const DEFAULT_LANGUAGE = process.env.TTS_LANGUAGE || "en-US";
 
 const categories = {
@@ -15,7 +16,7 @@ const categories = {
 
 const styles = {
   1: { id: "standard", name: "standard" },
-  2: { id: "chassidish", name: "chassidish" }
+  2: { id: "chassidish", name: "khosseedish" }
 };
 
 const collars = {
@@ -71,6 +72,7 @@ const cuffs = {
 };
 
 const sessions = new Map();
+const callSidSessionKeys = new Map();
 const CHASSIDISH_COLLAR = { id: "pointy", name: "pointy", skuCode: "P" };
 
 function escapeXml(value) {
@@ -145,6 +147,10 @@ function redirect(baseUrl, routePath) {
 
 function hangup() {
   return "<Hangup/>";
+}
+
+function pause(length = 1) {
+  return `<Pause length="${length}"/>`;
 }
 
 function parseFormBody(req) {
@@ -280,11 +286,19 @@ function sessionKeyForCaller(callSid, from) {
     return `phone:${caller}`;
   }
 
+  if (callSid && callSidSessionKeys.has(callSid)) {
+    return callSidSessionKeys.get(callSid);
+  }
+
   return callSid || `local-${Date.now()}`;
 }
 
 function getSession(callSid, from) {
   const key = sessionKeyForCaller(callSid, from);
+
+  if (callSid && String(from || "").trim()) {
+    callSidSessionKeys.set(callSid, key);
+  }
 
   if (!sessions.has(key)) {
     sessions.set(key, {
@@ -391,6 +405,15 @@ function ensurePendingItemDefaults(item) {
   return item;
 }
 
+function clearSession(callSid, from) {
+  const key = sessionKeyForCaller(callSid, from);
+  sessions.delete(key);
+
+  if (callSid) {
+    callSidSessionKeys.delete(callSid);
+  }
+}
+
 function skuCategoryCode(category) {
   return category === "mens" ? "M" : "B";
 }
@@ -475,6 +498,22 @@ function formatCartForSpeech(cart) {
   }
 
   return cart.map(formatCartLine).join(" ");
+}
+
+function formatCartPlaybackLine(item, index, totalItems) {
+  return [
+    `Item ${index + 1} of ${totalItems}.`,
+    `Quantity ${item.quantity}.`,
+    `${item.category} ${item.style} shirt.`,
+    `Collar ${item.collar}.`,
+    `Size ${item.size}.`,
+    `Sleeve ${item.sleeve}.`,
+    `Fit ${item.fit}.`,
+    `${item.pocket}.`,
+    `${item.cuff}.`,
+    `Fabric twill.`,
+    `Line total ${calculateLineTotal(item)} dollars.`
+  ].join(" ");
 }
 
 function cartQuantity(cart) {
@@ -639,10 +678,22 @@ function normalizePostAddSelection(input) {
     three: "3",
     confirm: "3",
     place: "3",
-    "place order": "3",
-    "4": "4",
-    four: "4",
-    cancel: "4"
+    "place order": "3"
+  });
+}
+
+function normalizeCartPlaybackSelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    replay: "1",
+    repeat: "1",
+    previous: "1",
+    back: "1",
+    "3": "3",
+    three: "3",
+    skip: "3",
+    next: "3"
   });
 }
 
@@ -659,7 +710,7 @@ function mainMenuResponse(baseUrl) {
       numDigits: 1,
       hints: "order shirts, cart, hours, representative",
       prompt:
-        "Welcome to Rebbi shirt ordering. We remember your cart by your phone number. Press 1 to order shirts. Press 2 to hear what is in your cart. Press 3 for store hours. Press 4 to speak with a representative."
+        "Welcome to Rebbi shirt ordering. Press 1 to order shirts. Press 2 to hear what is in your cart. Press 3 for store hours. Press 4 to speak with a representative."
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, "/api/twilio/voice")
@@ -673,7 +724,7 @@ function categoryMenuResponse(baseUrl) {
       input: "dtmf",
       numDigits: 1,
       hints: "mens, boys",
-      prompt: "Press 1 for mens. Press 2 for boys."
+      prompt: "Press 1 for mens. Press 2 for boys. Press star to go back."
     }),
     say("We did not receive a category selection."),
     redirect(baseUrl, "/api/twilio/order/current")
@@ -687,8 +738,8 @@ function styleMenuResponse(baseUrl, pendingItem) {
       action: withPendingState("/api/twilio/order/style", pendingItem),
       input: "dtmf",
       numDigits: 1,
-      hints: "standard, chassidish",
-      prompt: `You selected ${categoryName}. Press 1 for standard shirts. Press 2 for chassidish shirts. Press star to go back.`
+      hints: "standard, khosseedish",
+      prompt: `You selected ${categoryName}. Press 1 for standard shirts. Press 2 for khosseedish shirts. Press star to go back.`
     }),
     say("We did not receive a style selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
@@ -800,21 +851,116 @@ function quantityMenuResponse(baseUrl, itemDescription, pendingItem) {
   ]);
 }
 
-function postAddMenuResponse(baseUrl, session) {
+function postAddMenuResponse(baseUrl, session, addedItem) {
   const totalUnits = cartQuantity(session.cart);
   const totalPrice = calculateOrderTotal(session.cart);
+  const addedDescription = addedItem
+    ? `You added quantity ${addedItem.quantity}, ${addedItem.category} ${addedItem.style} shirt, size ${addedItem.size}, sleeve ${addedItem.sleeve}, ${addedItem.fit}, ${addedItem.pocket}, ${addedItem.cuff}.`
+    : "That item has been added to your cart.";
   return twiml([
-    say("That item has been added to your cart. We will remember your cart by your phone number."),
+    say(addedDescription),
     gather(baseUrl, {
       action: "/api/twilio/order/next",
       input: "dtmf",
       numDigits: 1,
-      hints: "add another, hear cart, confirm, cancel",
-      prompt: `${formatCartForSpeech(session.cart)} Your current total is ${totalPrice} dollars. You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to hear your cart again. Press 3 to place this order. Press 4 to cancel. Press star to go back.`
+      hints: "add another, hear cart, confirm",
+      prompt: `Your current total is ${totalPrice} dollars. You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to play your cart again. Press 3 to place this order.`
     }),
     say("We did not receive a valid selection."),
-    redirect(baseUrl, "/api/twilio/menu")
+    redirect(baseUrl, "/api/twilio/order/summary")
   ]);
+}
+
+function cartReturnPath(context) {
+  return context === "postadd" ? "/api/twilio/order/summary" : "/api/twilio/voice";
+}
+
+function buildCartPlaybackRoute(context, index, phase, announce = false) {
+  const params = new URLSearchParams({
+    context,
+    index: String(index),
+    phase
+  });
+
+  if (announce) {
+    params.set("announce", "1");
+  }
+
+  return `/api/twilio/cart/play?${params.toString()}`;
+}
+
+function cartPlaybackResponse(baseUrl, session, context, index, phase, announce) {
+  if (!session.cart.length) {
+    return twiml([say("Your cart is empty."), redirect(baseUrl, cartReturnPath(context))]);
+  }
+
+  const safeIndex = Math.max(0, Math.min(index, session.cart.length - 1));
+  const item = session.cart[safeIndex];
+  const parts = [];
+
+  if (announce) {
+    parts.push(say("While listening to the cart, press 1 to replay the item. Press 3 to skip to the next item."));
+    parts.push(pause(1));
+  }
+
+  if (phase === "intro") {
+    parts.push(
+      gather(baseUrl, {
+        action: `/api/twilio/cart/control?context=${encodeURIComponent(context)}&index=${safeIndex}&phase=intro`,
+        input: "dtmf",
+        numDigits: 1,
+        timeout: 1,
+        hints: "replay, previous, skip, next",
+        prompt: `Item ${safeIndex + 1}.`
+      })
+    );
+    parts.push(redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, "detail")));
+    return twiml(parts);
+  }
+
+  parts.push(
+    gather(baseUrl, {
+      action: `/api/twilio/cart/control?context=${encodeURIComponent(context)}&index=${safeIndex}&phase=detail`,
+      input: "dtmf",
+      numDigits: 1,
+      timeout: 1,
+      hints: "replay, previous, skip, next",
+      prompt: formatCartPlaybackLine(item, safeIndex, session.cart.length)
+    })
+  );
+
+  if (safeIndex < session.cart.length - 1) {
+    parts.push(pause(1));
+    parts.push(redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, "intro")));
+  } else {
+    parts.push(say("End of cart."));
+    parts.push(redirect(baseUrl, cartReturnPath(context)));
+  }
+
+  return twiml(parts);
+}
+
+function cartControlResponse(baseUrl, session, context, index, phase, selection) {
+  if (!session.cart.length) {
+    return twiml([say("Your cart is empty."), redirect(baseUrl, cartReturnPath(context))]);
+  }
+
+  const safeIndex = Math.max(0, Math.min(index, session.cart.length - 1));
+
+  if (selection === "1") {
+    const targetIndex = phase === "intro" ? Math.max(safeIndex - 1, 0) : safeIndex;
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, targetIndex, "intro"))]);
+  }
+
+  if (selection === "3") {
+    if (safeIndex >= session.cart.length - 1) {
+      return twiml([say("End of cart."), redirect(baseUrl, cartReturnPath(context))]);
+    }
+
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, "intro"))]);
+  }
+
+  return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, phase))]);
 }
 
 function invalidSelectionResponse(baseUrl, message, fallbackPath) {
@@ -967,7 +1113,7 @@ async function handleMainMenu(req, res, baseUrl) {
   }
 
   if (selection === "2") {
-    xml(res, 200, twiml([say(formatCartForSpeech(session.cart)), redirect(baseUrl, "/api/twilio/voice")]));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "voice", 0, "intro", true));
     return;
   }
 
@@ -1002,6 +1148,42 @@ async function handleOrderStart(_req, res, baseUrl) {
   xml(res, 200, categoryMenuResponse(baseUrl));
 }
 
+async function handlePostAddSummary(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid, form.From);
+  xml(res, 200, postAddMenuResponse(baseUrl, session));
+}
+
+async function handleTestReset(req, res) {
+  const form = await parseFormBody(req);
+  clearSession(form.CallSid, form.From);
+  json(res, 200, { ok: true });
+}
+
+async function handleCartPlayback(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid, form.From);
+  const current = new URL(req.url, "http://localhost");
+  const context = current.searchParams.get("context") === "postadd" ? "postadd" : "voice";
+  const index = Number(current.searchParams.get("index") || 0);
+  const phase = current.searchParams.get("phase") === "detail" ? "detail" : "intro";
+  const announce = current.searchParams.get("announce") === "1";
+
+  xml(res, 200, cartPlaybackResponse(baseUrl, session, context, index, phase, announce));
+}
+
+async function handleCartControl(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { session } = getSession(form.CallSid, form.From);
+  const current = new URL(req.url, "http://localhost");
+  const context = current.searchParams.get("context") === "postadd" ? "postadd" : "voice";
+  const index = Number(current.searchParams.get("index") || 0);
+  const phase = current.searchParams.get("phase") === "detail" ? "detail" : "intro";
+  const selection = normalizeCartPlaybackSelection(form.Digits || form.SpeechResult);
+
+  xml(res, 200, cartControlResponse(baseUrl, session, context, index, phase, selection));
+}
+
 async function handleCurrentOrderMenu(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { session } = getSession(form.CallSid, form.From);
@@ -1032,6 +1214,13 @@ async function restartOrderFlow(req, res, baseUrl) {
 async function handleCategorySelection(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { session } = getSession(form.CallSid, form.From);
+
+  if (wantsPreviousMenu(form)) {
+    delete session.pendingItem;
+    xml(res, 200, mainMenuResponse(baseUrl));
+    return;
+  }
+
   const selection = normalizeCategorySelection(form.Digits || form.SpeechResult);
   const category = categories[selection];
 
@@ -1090,11 +1279,17 @@ async function handleCollarSelection(req, res, baseUrl) {
     return;
   }
 
-  const selection = normalizeCollarSelection(form.Digits || form.SpeechResult);
+  const rawSelection = String(form.Digits || form.SpeechResult || "").trim();
+  const selection = normalizeCollarSelection(rawSelection);
   const collar = collars[selection];
 
   if (!session.pendingItem || !session.pendingItem.style) {
     xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
+    return;
+  }
+
+  if (!rawSelection) {
+    xml(res, 200, collarMenuResponse(baseUrl, session.pendingItem));
     return;
   }
 
@@ -1322,7 +1517,7 @@ async function handleQuantitySelection(req, res, baseUrl) {
   addedItem.lineTotal = calculateLineTotal(addedItem);
   delete session.pendingItem;
 
-  xml(res, 200, postAddMenuResponse(baseUrl, session));
+  xml(res, 200, postAddMenuResponse(baseUrl, session, addedItem));
 }
 
 async function handlePostAddMenu(req, res, baseUrl) {
@@ -1362,7 +1557,7 @@ async function handlePostAddMenu(req, res, baseUrl) {
   }
 
   if (selection === "2") {
-    xml(res, 200, twiml([say(formatCartForSpeech(session.cart)), redirect(baseUrl, "/api/twilio/order/next")]));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "postadd", 0, "intro", true));
     return;
   }
 
@@ -1383,25 +1578,12 @@ async function handlePostAddMenu(req, res, baseUrl) {
       // Order persistence should not block the caller's IVR flow.
     }
 
-    sessions.delete(key);
+    clearSession(form.CallSid || key, form.From);
     xml(
       res,
       200,
       twiml([
         say("Thank you. Your shirt order has been placed. A team member will follow up if needed."),
-        hangup()
-      ])
-    );
-    return;
-  }
-
-  if (selection === "4") {
-    sessions.delete(key);
-    xml(
-      res,
-      200,
-      twiml([
-        say("Your cart has been cleared and the order has been canceled."),
         hangup()
       ])
     );
@@ -1418,6 +1600,11 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     html(res, 200, fs.readFileSync(dashboardFile, "utf8"));
+    return;
+  }
+
+  if (req.method === "GET" && (pathname === "/testivr" || pathname === "/testivr/index.html")) {
+    html(res, 200, fs.readFileSync(testIvrFile, "utf8"));
     return;
   }
 
@@ -1458,6 +1645,14 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "POST" && pathname === "/api/twilio/order/current") {
     return handleCurrentOrderMenu(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/summary") {
+    return handlePostAddSummary(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/test/reset") {
+    return handleTestReset(req, res);
   }
 
   if (req.method === "POST" && pathname === "/api/twilio/order/back") {
@@ -1502,6 +1697,14 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "POST" && pathname === "/api/twilio/order/next") {
     return handlePostAddMenu(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/cart/play") {
+    return handleCartPlayback(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/cart/control") {
+    return handleCartControl(req, res, baseUrl);
   }
 
   notFound(res);

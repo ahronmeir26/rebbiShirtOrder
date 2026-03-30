@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Test IVR</title>
+    <style>
+      :root {
+        --bg: #f3f7fd;
+        --panel: #ffffff;
+        --panel-soft: #eef4ff;
+        --line: #cad8ed;
+        --ink: #233146;
+        --muted: #65748a;
+        --accent: #24478f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(164, 194, 244, 0.24), transparent 32%),
+          linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      }
+
+      .shell {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 18px 40px;
+      }
+
+      .hero,
+      .panel {
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        box-shadow: 0 18px 36px rgba(36, 71, 143, 0.08);
+      }
+
+      .hero {
+        padding: 22px;
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(1.8rem, 4vw, 2.8rem);
+      }
+
+      .hero p,
+      .meta,
+      .note {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .meta {
+        margin-top: 12px;
+        font-size: 0.95rem;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .panel {
+        padding: 18px;
+        min-width: 0;
+      }
+
+      .chat {
+        display: grid;
+        gap: 12px;
+        min-height: 0;
+        flex: 0 0 auto;
+      }
+
+      .messages {
+        height: 420px;
+        max-height: 420px;
+        min-height: 420px;
+        overflow: auto;
+        display: grid;
+        gap: 10px;
+        padding-right: 4px;
+        scroll-behavior: auto;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 12px;
+      }
+
+      .msg {
+        border-radius: 16px;
+        padding: 12px 14px;
+        white-space: pre-wrap;
+        line-height: 1.45;
+      }
+
+      .msg.assistant {
+        background: var(--panel-soft);
+        border: 1px solid rgba(36, 71, 143, 0.12);
+      }
+
+      .msg.user {
+        background: var(--accent);
+        color: white;
+        justify-self: end;
+        min-width: 74px;
+        text-align: center;
+      }
+
+      .controls {
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+        align-items: start;
+        width: 340px;
+        max-width: 340px;
+      }
+
+      .status {
+        font-size: 0.92rem;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        min-height: 24px;
+        max-height: 48px;
+        overflow: hidden;
+      }
+
+      .digits {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        border-radius: 14px;
+        background: var(--accent);
+        color: white;
+        padding: 12px 10px;
+        cursor: pointer;
+        min-height: 56px;
+        width: 100%;
+      }
+
+      button.secondary {
+        background: white;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .manual {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+
+      input {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: white;
+        min-width: 0;
+      }
+
+      .digits button {
+        min-height: 54px;
+      }
+
+      .small {
+        font-size: 0.84rem;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92em;
+      }
+
+      @media (max-width: 840px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .controls {
+          width: auto;
+          max-width: none;
+        }
+
+        .messages {
+          height: 360px;
+          max-height: 360px;
+          min-height: 360px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>Test IVR</h1>
+        <p>Browser-based Twilio flow tester. This uses the real IVR routes and a fixed fake caller number so cart behavior is easy to reproduce.</p>
+        <p class="meta">Fake caller: <code id="fake-number">+15555550123</code></p>
+      </section>
+
+      <section class="layout">
+        <section class="panel chat">
+          <div class="messages" id="messages"></div>
+        </section>
+
+        <aside class="panel controls">
+          <div class="status" id="status">Ready.</div>
+          <div class="actions">
+            <button id="start">Start Call</button>
+            <button class="secondary" id="reset">Reset Session</button>
+          </div>
+          <div class="digits">
+            <button data-digit="1">1</button>
+            <button data-digit="2">2</button>
+            <button data-digit="3">3</button>
+            <button data-digit="4">4</button>
+            <button data-digit="5">5</button>
+            <button data-digit="6">6</button>
+            <button data-digit="7">7</button>
+            <button data-digit="8">8</button>
+            <button data-digit="9">9</button>
+            <button data-digit="*">*</button>
+            <button data-digit="0">0</button>
+            <button data-digit="#">#</button>
+          </div>
+          <div class="manual">
+            <input id="manual-input" placeholder="Type digits, like 145 or 32" />
+            <button id="send">Send</button>
+          </div>
+          <button class="secondary" id="continue">Continue Without Input</button>
+          <p class="note small">Short timeout playback steps auto-continue. Use the digit buttons whenever you want to interrupt that flow.</p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const TEST_FROM = "+15555550123";
+      let callSid = "";
+      let nextAction = "/api/twilio/menu";
+      let fallbackRedirect = "";
+      let autoTimer = null;
+      let awaitingInput = false;
+
+      const messagesEl = document.getElementById("messages");
+      const statusEl = document.getElementById("status");
+      const manualInputEl = document.getElementById("manual-input");
+
+      function fakeCallSid() {
+        return `CATEST${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      }
+
+      function addMessage(role, text) {
+        const node = document.createElement("div");
+        node.className = `msg ${role}`;
+        node.textContent = text;
+        messagesEl.appendChild(node);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function cancelAutoTimer() {
+        if (autoTimer) {
+          clearTimeout(autoTimer);
+          autoTimer = null;
+        }
+      }
+
+      function normalizeUrl(url) {
+        const normalized = new URL(url, window.location.origin);
+        return normalized.pathname + normalized.search;
+      }
+
+      function directChildTexts(parent, tagName) {
+        return Array.from(parent.children)
+          .filter((child) => child.tagName === tagName)
+          .map((child) => child.textContent.trim())
+          .filter(Boolean);
+      }
+
+      function parseTwiml(xmlText) {
+        const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+        const response = doc.querySelector("Response");
+        if (!response) {
+          return { lines: [xmlText], action: "", redirect: "", timeout: 0 };
+        }
+
+        const gather = Array.from(response.children).find((child) => child.tagName === "Gather");
+        if (gather) {
+          const gatherLines = directChildTexts(gather, "Say");
+          const responseChildren = Array.from(response.children);
+          const gatherIndex = responseChildren.indexOf(gather);
+          const redirectNode = responseChildren.slice(gatherIndex + 1).find((child) => child.tagName === "Redirect");
+          const action = normalizeUrl(gather.getAttribute("action") || nextAction);
+          const redirect = redirectNode ? normalizeUrl(redirectNode.textContent.trim()) : "";
+          return {
+            lines: gatherLines,
+            action,
+            redirect,
+            timeout: Number(gather.getAttribute("timeout") || 0)
+          };
+        }
+
+        const lines = directChildTexts(response, "Say");
+        const redirectNode = Array.from(response.children).find((child) => child.tagName === "Redirect");
+        return {
+          lines,
+          action: "",
+          redirect: redirectNode ? normalizeUrl(redirectNode.textContent.trim()) : "",
+          timeout: 0
+        };
+      }
+
+      async function postToIvr(url, digits = "") {
+        cancelAutoTimer();
+        const body = new URLSearchParams({ CallSid: callSid, From: TEST_FROM });
+        if (digits !== "") {
+          body.set("Digits", digits);
+        }
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body
+        });
+
+        const xmlText = await response.text();
+        const parsed = parseTwiml(xmlText);
+        parsed.lines.forEach((line) => addMessage("assistant", line));
+        nextAction = parsed.action || nextAction;
+        fallbackRedirect = parsed.redirect || "";
+        awaitingInput = Boolean(parsed.action);
+        setStatus(awaitingInput ? "Waiting for input." : parsed.redirect ? "Ready to continue." : "Flow complete.");
+      }
+
+      async function startCall() {
+        cancelAutoTimer();
+        callSid = fakeCallSid();
+        nextAction = "/api/twilio/menu";
+        fallbackRedirect = "";
+        awaitingInput = false;
+        messagesEl.innerHTML = "";
+        setStatus("Starting test call...");
+        await postToIvr("/api/twilio/voice");
+      }
+
+      async function sendDigits(digits) {
+        if (!callSid) {
+          await startCall();
+        }
+
+        cancelAutoTimer();
+        addMessage("user", digits || "(continue)");
+        const target = awaitingInput ? nextAction : fallbackRedirect || nextAction;
+        await postToIvr(target, digits);
+      }
+
+      async function resetSession() {
+        cancelAutoTimer();
+        if (!callSid) {
+          callSid = fakeCallSid();
+        }
+
+        await fetch("/api/twilio/test/reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ CallSid: callSid, From: TEST_FROM })
+        });
+
+        messagesEl.innerHTML = "";
+        nextAction = "/api/twilio/menu";
+        fallbackRedirect = "";
+        awaitingInput = false;
+        setStatus("Test session cleared.");
+      }
+
+      document.getElementById("start").addEventListener("click", startCall);
+      document.getElementById("reset").addEventListener("click", resetSession);
+      document.getElementById("continue").addEventListener("click", () => sendDigits(""));
+      document.getElementById("send").addEventListener("click", () => {
+        const digits = manualInputEl.value.trim();
+        if (!digits) return;
+        manualInputEl.value = "";
+        sendDigits(digits);
+      });
+
+      manualInputEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          document.getElementById("send").click();
+        }
+      });
+
+      document.querySelectorAll("[data-digit]").forEach((button) => {
+        button.addEventListener("click", () => sendDigits(button.dataset.digit || ""));
+      });
+    </script>
+  </body>
+</html>
