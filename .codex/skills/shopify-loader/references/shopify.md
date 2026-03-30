@@ -92,6 +92,15 @@ query OrderStatuses($ids: [ID!]!) {
       id
       legacyResourceId
       displayFulfillmentStatus
+      fulfillmentOrders(first: 10) {
+        nodes {
+          id
+          status
+          assignedLocation {
+            location { name }
+          }
+        }
+      }
     }
   }
 }
@@ -101,8 +110,14 @@ Batching rule in current code:
 
 - batch `Order` IDs in groups of `100`
 - send them as `gid://shopify/Order/{id}`
-- map `legacyResourceId -> displayFulfillmentStatus`
+- map `legacyResourceId -> { displayFulfillmentStatus, assignedLocations }`
 - keep only orders where status is exactly `UNFULFILLED`
+
+Assigned location rule:
+
+- For this store, the order's fulfillment location is determined from `fulfillmentOrders.nodes[].assignedLocation.location.name`
+- `#329634` verified as `assignedLocation = Lakewood` even while its raw tags remained `PIO - A . I . S T O N E`
+- Do not use tags as the source of truth for order location when fulfillment-order location is available
 
 ## Inventory by location
 
@@ -159,6 +174,9 @@ Practical note:
   - `item.stock.pio.onHand`
   - `item.stock.pio.committed`
 - Also expose `order.isLakewoodTagged` as a boolean derived from the order tags.
+- Also expose:
+  - `order.assignedLocations`
+  - `order.primaryAssignedLocation`
 
 Current normalized `/api/transfers` order shape:
 
@@ -224,6 +242,7 @@ Current stock filter:
 
 - `Not in stock in Lakewood but in stock at PIO`
 - Logic:
+  - `order.primaryAssignedLocation === "Lakewood"`
   - `item.stock.lakewood.available <= 0`
   - `item.stock.pio.available > 0`
 

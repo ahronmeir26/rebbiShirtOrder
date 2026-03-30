@@ -547,6 +547,7 @@
 
       function itemMatchesLakewoodPioFilter(order, item) {
         return Boolean(
+          (order.primaryAssignedLocation || "").toLowerCase() === "lakewood" &&
           Number(item.stock?.lakewood?.available || 0) <= 0 &&
           Number(item.stock?.pio?.available || 0) > 0
         );
@@ -676,7 +677,7 @@
 
                 <div class="order-footer">
                   <div class="aux">
-                    ${order.isLakewoodTagged ? `<span class="tag location">Lakewood order</span>` : ""}
+                    ${order.primaryAssignedLocation ? `<span class="tag location">${escapeHtml(order.primaryAssignedLocation)}</span>` : ""}
                     <span class="tag">${escapeHtml(order.fulfillmentStatus || "unfulfilled")}</span>
                   </div>
                 </div>

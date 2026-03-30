@@ -88,6 +88,17 @@ async function fetchOrderDisplayStatuses(storeDomain, apiVersion, accessToken, o
           id
           legacyResourceId
           displayFulfillmentStatus
+          fulfillmentOrders(first: 10) {
+            nodes {
+              id
+              status
+              assignedLocation {
+                location {
+                  name
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -103,7 +114,16 @@ async function fetchOrderDisplayStatuses(storeDomain, apiVersion, accessToken, o
         continue;
       }
 
-      statuses.set(String(node.legacyResourceId), String(node.displayFulfillmentStatus || "").trim().toUpperCase());
+      statuses.set(String(node.legacyResourceId), {
+        displayFulfillmentStatus: String(node.displayFulfillmentStatus || "").trim().toUpperCase(),
+        assignedLocations: Array.from(
+          new Set(
+            (Array.isArray(node.fulfillmentOrders?.nodes) ? node.fulfillmentOrders.nodes : [])
+              .map((fulfillmentOrder) => String(fulfillmentOrder.assignedLocation?.location?.name || "").trim())
+              .filter(Boolean)
+          )
+        )
+      });
     }
   }
 
@@ -308,8 +328,9 @@ async function fetchShopifyOrders() {
   );
 
   const orders = restOrders.filter((order) => {
-    const graphqlStatus = displayStatuses.get(String(order.id));
-    if (!graphqlStatus) {
+    const graphqlData = displayStatuses.get(String(order.id));
+    const graphqlStatus = graphqlData?.displayFulfillmentStatus;
+    if (!graphqlData) {
       return true;
     }
 
@@ -338,7 +359,7 @@ async function fetchShopifyOrders() {
       phone: order.phone,
       customerName: [order.customer?.first_name, order.customer?.last_name].filter(Boolean).join(" "),
       fulfillmentStatus:
-        displayStatuses.get(String(order.id))?.toLowerCase().replace(/_/g, " ") ||
+        displayStatuses.get(String(order.id))?.displayFulfillmentStatus?.toLowerCase().replace(/_/g, " ") ||
         order.display_fulfillment_status ||
         order.fulfillment_status ||
         "unfulfilled",
@@ -351,6 +372,8 @@ async function fetchShopifyOrders() {
       province: order.shipping_address?.province || "",
       tags: order.tags || "",
       note: order.note || "",
+      assignedLocations: displayStatuses.get(String(order.id))?.assignedLocations || [],
+      primaryAssignedLocation: displayStatuses.get(String(order.id))?.assignedLocations?.[0] || "",
       isLakewoodTagged: String(order.tags || "")
         .split(",")
         .map((tag) => tag.trim().toLowerCase())
