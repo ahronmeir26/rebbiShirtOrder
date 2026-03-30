@@ -6,3 +6,4 @@
 - When finishing an edit, commit the changes and push them to `origin`.
 - When loading data from Shopify in this repo, reference the local skill at `.codex/skills/shopify-loader/SKILL.md`.
 - When new Shopify-specific implementation details are learned, add them to the Shopify loader skill or its references.
+- When Shopify API access patterns, queries, filters, scopes, locations, or payload shapes change, update the Shopify loader skill and references in the same task.

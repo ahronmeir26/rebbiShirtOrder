@@ -23,3 +23,4 @@ Read [references/shopify.md](references/shopify.md) for:
 3. Return normalized JSON from API routes and render UI pages separately.
 4. For missing credentials, return a clear non-crashing response that explains what env vars are missing.
 5. When extending `/transfers`, preserve the split between the `Orders` tab and the inventory-aware `Stock` tab instead of mixing stock logic into the default order view.
+6. Whenever Shopify API usage changes in this repo, update this skill or `references/shopify.md` in the same change so the documented interaction model stays current.
