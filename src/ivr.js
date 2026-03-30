@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { deleteSession, loadOrders, loadSession, saveOrder, saveSession } = require("./order-store");
+const { deleteSession, findSessionByCaller, loadOrders, loadSession, saveOrder, saveSession } = require("./order-store");
 
 const dashboardFile = path.join(__dirname, "..", "index.html");
 const testIvrFile = path.join(__dirname, "..", "testivr", "index.html");
@@ -79,6 +79,9 @@ function sanitizeSession(session) {
   const source = session && typeof session === "object" ? session : {};
   return {
     createdAt: source.createdAt || new Date().toISOString(),
+    caller: String(source.caller || "").trim(),
+    lastCallSid: String(source.lastCallSid || "").trim(),
+    pendingItem: source.pendingItem && typeof source.pendingItem === "object" ? source.pendingItem : undefined,
     cart: Array.isArray(source.cart) ? source.cart : []
   };
 }
@@ -302,15 +305,53 @@ function sessionKeyForCaller(callSid, from) {
 }
 
 async function getSession(callSid, from) {
-  const key = sessionKeyForCaller(callSid, from);
+  const directKey = sessionKeyForCaller(callSid, from);
+  let key = directKey;
 
   if (callSid && String(from || "").trim()) {
     callSidSessionKeys.set(callSid, key);
   }
 
   if (!sessions.has(key)) {
-    const stored = sanitizeSession(await loadSession(key));
-    sessions.set(key, stored);
+    let stored = await loadSession(key);
+
+    if ((!stored || !Array.isArray(stored.cart) || stored.cart.length === 0) && String(from || "").trim()) {
+      const storedByCaller = await findSessionByCaller(String(from).trim());
+      if (storedByCaller) {
+        stored = storedByCaller;
+        key = `phone:${String(from).trim()}`;
+      }
+    }
+
+    if ((!stored || !Array.isArray(stored.cart) || stored.cart.length === 0) && callSid && String(from || "").trim()) {
+      const legacyByCall = await loadSession(callSid);
+      if (legacyByCall && Array.isArray(legacyByCall.cart) && legacyByCall.cart.length) {
+        stored = legacyByCall;
+        key = `phone:${String(from).trim()}`;
+      }
+    }
+
+    if ((!stored || !Array.isArray(stored.cart) || stored.cart.length === 0) && callSid && !String(from || "").trim()) {
+      const storedByCall = await loadSession(callSid);
+      if (storedByCall) {
+        stored = storedByCall;
+        if (storedByCall.caller) {
+          key = `phone:${String(storedByCall.caller).trim()}`;
+        } else {
+          key = callSid;
+        }
+      }
+    }
+
+    const normalized = sanitizeSession(stored);
+    if (String(from || "").trim()) {
+      normalized.caller = String(from).trim();
+    }
+    if (callSid) {
+      normalized.lastCallSid = String(callSid).trim();
+      callSidSessionKeys.set(callSid, key);
+    }
+    sessions.set(key, normalized);
   }
 
   return { key, session: sessions.get(key) };
@@ -413,8 +454,21 @@ function ensurePendingItemDefaults(item) {
 
 async function clearSession(callSid, from) {
   const key = sessionKeyForCaller(callSid, from);
+  const phoneKey = String(from || "").trim() ? `phone:${String(from).trim()}` : null;
+  const callKey = callSid ? String(callSid).trim() : null;
+
   sessions.delete(key);
-  await deleteSession(key);
+  if (phoneKey) {
+    sessions.delete(phoneKey);
+    await deleteSession(phoneKey);
+  }
+  if (callKey) {
+    sessions.delete(callKey);
+    await deleteSession(callKey);
+  }
+  if (key !== phoneKey && key !== callKey) {
+    await deleteSession(key);
+  }
 
   if (callSid) {
     callSidSessionKeys.delete(callSid);
@@ -422,8 +476,22 @@ async function clearSession(callSid, from) {
 }
 
 async function persistSessionState(key, session) {
-  sessions.set(key, session);
-  await saveSession(key, sanitizeSession(session));
+  const sanitized = sanitizeSession(session);
+  const phoneKey = sanitized.caller ? `phone:${sanitized.caller}` : null;
+  const callKey = sanitized.lastCallSid || null;
+
+  sessions.set(key, sanitized);
+  await saveSession(key, sanitized);
+
+  if (phoneKey && phoneKey !== key) {
+    sessions.set(phoneKey, sanitized);
+    await saveSession(phoneKey, sanitized);
+  }
+
+  if (callKey && callKey !== key && callKey !== phoneKey) {
+    sessions.set(callKey, sanitized);
+    await saveSession(callKey, sanitized);
+  }
 }
 
 function skuCategoryCode(category) {
@@ -870,25 +938,33 @@ function quantityMenuResponse(baseUrl, itemDescription, pendingItem) {
 function postAddMenuResponse(baseUrl, session, addedItem) {
   const totalUnits = cartQuantity(session.cart);
   const totalPrice = calculateOrderTotal(session.cart);
-  const addedDescription = addedItem
-    ? `You added quantity ${addedItem.quantity}, ${addedItem.category} ${addedItem.style} shirt, size ${addedItem.size}, sleeve ${addedItem.sleeve}, ${addedItem.fit}, ${addedItem.pocket}, ${addedItem.cuff}.`
-    : "That item has been added to your cart.";
-  return twiml([
-    say(addedDescription),
+  const parts = [];
+
+  if (addedItem) {
+    parts.push(
+      say(
+        `You added quantity ${addedItem.quantity}, ${addedItem.category} ${addedItem.style} shirt, size ${addedItem.size}, sleeve ${addedItem.sleeve}, ${addedItem.fit}, ${addedItem.pocket}, ${addedItem.cuff}.`
+      )
+    );
+  }
+
+  parts.push(
     gather(baseUrl, {
       action: "/api/twilio/order/next",
       input: "dtmf",
       numDigits: 1,
       hints: "add another, hear cart, confirm",
       prompt: `Your current total is ${totalPrice} dollars. You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to play your cart again. Press 3 to place this order.`
-    }),
-    say("We did not receive a valid selection."),
-    redirect(baseUrl, "/api/twilio/order/summary")
-  ]);
+    })
+  );
+  parts.push(say("We did not receive a valid selection."));
+  parts.push(redirect(baseUrl, "/api/twilio/order/summary"));
+
+  return twiml(parts);
 }
 
 function cartReturnPath(context) {
-  return context === "postadd" ? "/api/twilio/order/summary" : "/api/twilio/voice";
+  return context === "postadd" || context === "summary" ? "/api/twilio/order/summary" : "/api/twilio/voice";
 }
 
 function buildCartPlaybackRoute(context, index, phase, announce = false) {
@@ -1146,7 +1222,7 @@ async function handleMainMenu(req, res, baseUrl) {
       return;
     }
 
-    xml(res, 200, cartPlaybackResponse(baseUrl, session, "voice", 0, "intro", true));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "summary", 0, "intro", true));
     return;
   }
 
@@ -1198,7 +1274,8 @@ async function handleCartPlayback(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { session } = await getSession(form.CallSid, form.From);
   const current = new URL(req.url, "http://localhost");
-  const context = current.searchParams.get("context") === "postadd" ? "postadd" : "voice";
+  const rawContext = current.searchParams.get("context");
+  const context = rawContext === "postadd" || rawContext === "summary" ? rawContext : "voice";
   const index = Number(current.searchParams.get("index") || 0);
   const phase = current.searchParams.get("phase") === "detail" ? "detail" : "intro";
   const announce = current.searchParams.get("announce") === "1";
@@ -1210,7 +1287,8 @@ async function handleCartControl(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { key, session } = await getSession(form.CallSid, form.From);
   const current = new URL(req.url, "http://localhost");
-  const context = current.searchParams.get("context") === "postadd" ? "postadd" : "voice";
+  const rawContext = current.searchParams.get("context");
+  const context = rawContext === "postadd" || rawContext === "summary" ? rawContext : "voice";
   const index = Number(current.searchParams.get("index") || 0);
   const phase = current.searchParams.get("phase") === "detail" ? "detail" : "intro";
   const selection = normalizeCartPlaybackSelection(form.Digits || form.SpeechResult);

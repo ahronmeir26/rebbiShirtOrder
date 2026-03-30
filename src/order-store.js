@@ -80,6 +80,19 @@ async function loadSession(sessionKey) {
   return loadSessionFromFile(sessionKey);
 }
 
+async function findSessionByCaller(caller) {
+  const normalizedCaller = String(caller || "").trim();
+  if (!normalizedCaller) {
+    return null;
+  }
+
+  if (canUseBlobStore()) {
+    return findSessionByCallerInBlob(normalizedCaller);
+  }
+
+  return findSessionByCallerInFile(normalizedCaller);
+}
+
 async function saveSession(sessionKey, sessionRecord) {
   if (!sessionKey) {
     return;
@@ -145,6 +158,21 @@ function saveSessionToFile(sessionKey, sessionRecord) {
   const sessions = readSessionsFromFile();
   sessions[sessionKey] = sessionRecord;
   writeSessionsToFile(sessions);
+}
+
+function findSessionByCallerInFile(caller) {
+  try {
+    const sessions = readSessionsFromFile();
+    for (const sessionRecord of Object.values(sessions)) {
+      if (sessionRecord && String(sessionRecord.caller || "").trim() === caller) {
+        return sessionRecord;
+      }
+    }
+  } catch (_error) {
+    return null;
+  }
+
+  return null;
 }
 
 function deleteSessionFromFile(sessionKey) {
@@ -241,6 +269,25 @@ async function loadSessionFromBlob(sessionKey) {
   }
 }
 
+async function findSessionByCallerInBlob(caller) {
+  const { list } = blobSdk();
+  let cursor;
+
+  do {
+    const page = await list({ prefix: SESSION_BLOB_PREFIX, cursor });
+    for (const blob of Array.isArray(page.blobs) ? page.blobs : []) {
+      const sessionRecord = await loadSessionFromBlob(blob.pathname.replace(SESSION_BLOB_PREFIX, "").replace(/\.json$/, ""));
+      if (sessionRecord && String(sessionRecord.caller || "").trim() === caller) {
+        return sessionRecord;
+      }
+    }
+
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+
+  return null;
+}
+
 async function deleteSessionFromBlob(sessionKey) {
   const { del } = blobSdk();
 
@@ -256,6 +303,7 @@ async function deleteSessionFromBlob(sessionKey) {
 module.exports = {
   deleteSession,
   ensureDataStore,
+  findSessionByCaller,
   loadSession,
   loadOrders,
   saveSession,
