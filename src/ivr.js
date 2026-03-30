@@ -217,6 +217,34 @@ function logTwilioDebug(event, details) {
   console.log(`[twilio-debug] ${event} ${safeJson(details)}`);
 }
 
+function attachTwilioResponseLogging(res, pathname) {
+  if (!pathname.startsWith("/api/twilio") || res.__twilioLoggingAttached) {
+    return;
+  }
+
+  res.__twilioLoggingAttached = true;
+
+  const originalWriteHead = typeof res.writeHead === "function" ? res.writeHead.bind(res) : null;
+  const originalEnd = typeof res.end === "function" ? res.end.bind(res) : null;
+
+  res.writeHead = function patchedWriteHead(statusCode, headers) {
+    res.__twilioStatusCode = statusCode;
+    res.__twilioHeaders = headers;
+    return originalWriteHead ? originalWriteHead(statusCode, headers) : res;
+  };
+
+  res.end = function patchedEnd(payload, ...args) {
+    const text = payload == null ? "" : Buffer.isBuffer(payload) ? payload.toString("utf8") : String(payload);
+    logTwilioDebug("response", {
+      pathname,
+      statusCode: res.__twilioStatusCode,
+      contentType: res.__twilioHeaders?.["Content-Type"] || res.__twilioHeaders?.["content-type"],
+      body: text
+    });
+    return originalEnd ? originalEnd(payload, ...args) : undefined;
+  };
+}
+
 function getTwilioRouteParam(req, current) {
   return req.query?.route || req.query?.["...route"] || current.searchParams.getAll("route") || current.searchParams.getAll("...route");
 }
@@ -1454,6 +1482,7 @@ function routeRequest(req, res, pathname, baseUrl) {
 async function handleHttpRequest(req, res, options = {}) {
   try {
     const pathname = resolvePathname(req);
+    attachTwilioResponseLogging(res, pathname);
     const baseUrl = buildBaseUrl(req, options.baseUrl || process.env.BASE_URL);
     await routeRequest(req, res, pathname, baseUrl);
   } catch (error) {
