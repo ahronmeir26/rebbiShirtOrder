@@ -75,6 +75,14 @@ const sessions = new Map();
 const callSidSessionKeys = new Map();
 const CHASSIDISH_COLLAR = { id: "pointy", name: "pointy", skuCode: "P" };
 
+function sanitizeSession(session) {
+  const source = session && typeof session === "object" ? session : {};
+  return {
+    createdAt: source.createdAt || new Date().toISOString(),
+    cart: Array.isArray(source.cart) ? source.cart : []
+  };
+}
+
 function escapeXml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -301,11 +309,7 @@ async function getSession(callSid, from) {
   }
 
   if (!sessions.has(key)) {
-    const stored =
-      (await loadSession(key)) || {
-        createdAt: new Date().toISOString(),
-        cart: []
-      };
+    const stored = sanitizeSession(await loadSession(key));
     sessions.set(key, stored);
   }
 
@@ -419,7 +423,7 @@ async function clearSession(callSid, from) {
 
 async function persistSessionState(key, session) {
   sessions.set(key, session);
-  await saveSession(key, session);
+  await saveSession(key, sanitizeSession(session));
 }
 
 function skuCategoryCode(category) {
@@ -701,7 +705,11 @@ function normalizeCartPlaybackSelection(input) {
     "3": "3",
     three: "3",
     skip: "3",
-    next: "3"
+    next: "3",
+    "5": "5",
+    five: "5",
+    delete: "5",
+    remove: "5"
   });
 }
 
@@ -907,7 +915,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, phase, announce)
   const parts = [];
 
   if (announce) {
-    parts.push(say("While listening to the cart, press 1 to replay the item. Press 3 to skip to the next item."));
+    parts.push(say("While listening to the cart, press 1 to replay the item. Press 3 to skip to the next item. Press 5 to delete this item from your cart."));
     parts.push(pause(1));
   }
 
@@ -918,7 +926,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, phase, announce)
         input: "dtmf",
         numDigits: 1,
         timeout: 1,
-        hints: "replay, previous, skip, next",
+        hints: "replay, previous, skip, next, delete, remove",
         prompt: `Item ${safeIndex + 1}.`
       })
     );
@@ -932,7 +940,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, phase, announce)
       input: "dtmf",
       numDigits: 1,
       timeout: 1,
-      hints: "replay, previous, skip, next",
+      hints: "replay, previous, skip, next, delete, remove",
       prompt: formatCartPlaybackLine(item, safeIndex, session.cart.length)
     })
   );
@@ -1121,7 +1129,12 @@ async function handleMainMenu(req, res, baseUrl) {
   }
 
   if (selection === "2") {
-    xml(res, 200, cartPlaybackResponse(baseUrl, session, "voice", 0, "intro", true));
+    if (!session.cart.length) {
+      xml(res, 200, twiml([say("Your cart is empty."), redirect(baseUrl, "/api/twilio/voice")]));
+      return;
+    }
+
+    xml(res, 200, postAddMenuResponse(baseUrl, session));
     return;
   }
 
@@ -1183,12 +1196,36 @@ async function handleCartPlayback(req, res, baseUrl) {
 
 async function handleCartControl(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { session } = await getSession(form.CallSid, form.From);
+  const { key, session } = await getSession(form.CallSid, form.From);
   const current = new URL(req.url, "http://localhost");
   const context = current.searchParams.get("context") === "postadd" ? "postadd" : "voice";
   const index = Number(current.searchParams.get("index") || 0);
   const phase = current.searchParams.get("phase") === "detail" ? "detail" : "intro";
   const selection = normalizeCartPlaybackSelection(form.Digits || form.SpeechResult);
+
+  if (selection === "5") {
+    if (!session.cart.length) {
+      xml(res, 200, twiml([say("Your cart is empty."), redirect(baseUrl, cartReturnPath(context))]));
+      return;
+    }
+
+    const safeIndex = Math.max(0, Math.min(index, session.cart.length - 1));
+    session.cart.splice(safeIndex, 1);
+    await persistSessionState(key, session);
+
+    if (!session.cart.length) {
+      xml(res, 200, twiml([say("Item deleted. Your cart is now empty."), redirect(baseUrl, cartReturnPath(context))]));
+      return;
+    }
+
+    const nextIndex = Math.min(safeIndex, session.cart.length - 1);
+    xml(
+      res,
+      200,
+      twiml([say("Item deleted."), redirect(baseUrl, buildCartPlaybackRoute(context, nextIndex, "intro", true))])
+    );
+    return;
+  }
 
   xml(res, 200, cartControlResponse(baseUrl, session, context, index, phase, selection));
 }
