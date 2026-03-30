@@ -52,6 +52,23 @@ Implementation note:
 
 - Even when querying `fulfillment_status=unfulfilled`, Shopify responses can still include orders whose display status is `partial`. Filter those out server-side if the UI should show only fully unfulfilled orders.
 - Shopify GraphQL `Order.displayFulfillmentStatus` is a more reliable final filter than the REST order fulfillment fields for excluding admin-side `IN_PROGRESS` orders such as `#330572`.
+- Inventory location names visible on inventory levels can differ from the simpler location list returned elsewhere. In this store, `PIO - A . I . S T O N E` appears on inventory levels even though an earlier location list check only surfaced `Lakewood`, `Jackson`, and `Digital Goods`.
+
+## Inventory by location
+
+To show stock by fulfillment location for order items:
+
+1. Load the relevant orders first.
+2. Collect unique `variant_id` values from the line items.
+3. Query Shopify GraphQL for those `ProductVariant` nodes and read `inventoryItem.inventoryLevels`.
+4. Normalize `available` quantities by location name.
+5. For this store, track at least:
+   - `Lakewood`
+   - `PIO - A . I . S T O N E`
+
+Practical note:
+
+- A useful transfer filter here is: order tagged `Lakewood`, item not available in `Lakewood`, and item available in `PIO - A . I . S T O N E`.
 
 ## Pagination
 

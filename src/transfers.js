@@ -3,6 +3,8 @@ const path = require("path");
 
 const transfersPageFile = path.join(__dirname, "..", "transfers", "index.html");
 let shopifyTokenCache = null;
+const LAKEWOOD_LOCATION = "Lakewood";
+const PIO_LOCATION = "PIO - A . I . S T O N E";
 
 function json(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
@@ -106,6 +108,67 @@ async function fetchOrderDisplayStatuses(storeDomain, apiVersion, accessToken, o
   }
 
   return statuses;
+}
+
+async function fetchVariantInventoryByLocation(storeDomain, apiVersion, accessToken, variantIds) {
+  const inventoryByVariantId = new Map();
+  const query = `
+    query VariantInventory($ids: [ID!]!) {
+      nodes(ids: $ids) {
+        ... on ProductVariant {
+          id
+          legacyResourceId
+          inventoryItem {
+            id
+            inventoryLevels(first: 20) {
+              nodes {
+                location { name }
+                quantities(names: ["available", "on_hand", "committed", "incoming"]) {
+                  name
+                  quantity
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  for (let index = 0; index < variantIds.length; index += 50) {
+    const batch = variantIds.slice(index, index + 50).map((id) => `gid://shopify/ProductVariant/${id}`);
+    const data = await fetchGraphqlJson(storeDomain, apiVersion, accessToken, query, { ids: batch });
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+
+    for (const node of nodes) {
+      if (!node || !node.legacyResourceId) {
+        continue;
+      }
+
+      const inventoryLevels = Array.isArray(node.inventoryItem?.inventoryLevels?.nodes)
+        ? node.inventoryItem.inventoryLevels.nodes
+        : [];
+
+      const levels = {};
+      for (const level of inventoryLevels) {
+        const locationName = String(level.location?.name || "").trim();
+        if (!locationName) {
+          continue;
+        }
+
+        const quantities = {};
+        for (const quantity of Array.isArray(level.quantities) ? level.quantities : []) {
+          quantities[quantity.name] = Number(quantity.quantity || 0);
+        }
+
+        levels[locationName] = quantities;
+      }
+
+      inventoryByVariantId.set(String(node.legacyResourceId), levels);
+    }
+  }
+
+  return inventoryByVariantId;
 }
 
 async function resolveShopifyAccessToken() {
@@ -253,6 +316,18 @@ async function fetchShopifyOrders() {
     return graphqlStatus === "UNFULFILLED";
   });
 
+  const variantIds = Array.from(
+    new Set(
+      orders.flatMap((order) =>
+        (Array.isArray(order.line_items) ? order.line_items : [])
+          .map((item) => item.variant_id)
+          .filter(Boolean)
+          .map(String)
+      )
+    )
+  );
+  const inventoryByVariantId = await fetchVariantInventoryByLocation(storeDomain, apiVersion, accessToken, variantIds);
+
   return {
     configured: true,
     orders: orders.map((order) => ({
@@ -276,6 +351,10 @@ async function fetchShopifyOrders() {
       province: order.shipping_address?.province || "",
       tags: order.tags || "",
       note: order.note || "",
+      isLakewoodTagged: String(order.tags || "")
+        .split(",")
+        .map((tag) => tag.trim().toLowerCase())
+        .includes("lakewood"),
       itemCount: Array.isArray(order.line_items)
         ? order.line_items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
         : 0,
@@ -285,10 +364,30 @@ async function fetchShopifyOrders() {
             title: item.title,
             variantTitle: item.variant_title,
             sku: item.sku,
-            quantity: item.quantity
+            quantity: item.quantity,
+            variantId: item.variant_id || null,
+            stock: normalizeStockLevels(inventoryByVariantId.get(String(item.variant_id || "")))
           }))
         : []
     }))
+  };
+}
+
+function normalizeStockLevels(levels) {
+  const lakewood = levels?.[LAKEWOOD_LOCATION] || {};
+  const pio = levels?.[PIO_LOCATION] || {};
+
+  return {
+    lakewood: {
+      available: Number(lakewood.available || 0),
+      onHand: Number(lakewood.on_hand || 0),
+      committed: Number(lakewood.committed || 0)
+    },
+    pio: {
+      available: Number(pio.available || 0),
+      onHand: Number(pio.on_hand || 0),
+      committed: Number(pio.committed || 0)
+    }
   };
 }
 
