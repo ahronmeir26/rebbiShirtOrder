@@ -20,6 +20,19 @@
 3. Normalize the Shopify response into the shape the UI actually needs.
 4. Never crash the page for missing config; return a structured error payload instead.
 
+## Why this implementation mixes REST and GraphQL
+
+The current `/transfers` implementation uses both Admin REST and Admin GraphQL:
+
+- REST Orders API for the initial order list
+  - easier bulk pagination for open unfulfilled orders
+  - straightforward `fields` filtering
+- GraphQL for status and inventory enrichment
+  - `Order.displayFulfillmentStatus` is more reliable than REST fulfillment fields for excluding `IN_PROGRESS`
+  - `ProductVariant -> inventoryItem -> inventoryLevels` is the practical path for location-aware stock
+
+Use the same split unless there is a strong reason to rewrite the flow fully in GraphQL.
+
 ## Auth
 
 - If `SHOPIFY_ADMIN_ACCESS_TOKEN` is available, send it as `X-Shopify-Access-Token`.
@@ -43,6 +56,22 @@ Select only the needed fields to keep the payload smaller:
 - line items and SKUs
 - tags and note
 
+Current REST request in this repo:
+
+- Endpoint:
+  - `GET https://{store}/admin/api/{apiVersion}/orders.json`
+- Query params:
+  - `status=open`
+  - `fulfillment_status=unfulfilled`
+  - `limit=250`
+  - `fields=id,name,created_at,email,phone,customer,fulfillment_status,financial_status,display_fulfillment_status,current_total_price,currency,source_name,line_items,shipping_address,tags,note`
+
+Pagination behavior:
+
+- Read the `Link` header from each response
+- follow `rel="next"` until exhausted
+- merge all `orders` arrays before normalization
+
 Required scopes:
 
 - `read_orders`
@@ -53,6 +82,27 @@ Implementation note:
 - Even when querying `fulfillment_status=unfulfilled`, Shopify responses can still include orders whose display status is `partial`. Filter those out server-side if the UI should show only fully unfulfilled orders.
 - Shopify GraphQL `Order.displayFulfillmentStatus` is a more reliable final filter than the REST order fulfillment fields for excluding admin-side `IN_PROGRESS` orders such as `#330572`.
 - Inventory location names visible on inventory levels can differ from the simpler location list returned elsewhere. In this store, `PIO - A . I . S T O N E` appears on inventory levels even though an earlier location list check only surfaced `Lakewood`, `Jackson`, and `Digital Goods`.
+
+Current GraphQL order-status query:
+
+```graphql
+query OrderStatuses($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Order {
+      id
+      legacyResourceId
+      displayFulfillmentStatus
+    }
+  }
+}
+```
+
+Batching rule in current code:
+
+- batch `Order` IDs in groups of `100`
+- send them as `gid://shopify/Order/{id}`
+- map `legacyResourceId -> displayFulfillmentStatus`
+- keep only orders where status is exactly `UNFULFILLED`
 
 ## Inventory by location
 
@@ -66,6 +116,38 @@ To show stock by fulfillment location for order items:
    - `Lakewood`
    - `PIO - A . I . S T O N E`
 
+Current GraphQL inventory query:
+
+```graphql
+query VariantInventory($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on ProductVariant {
+      id
+      legacyResourceId
+      inventoryItem {
+        id
+        inventoryLevels(first: 20) {
+          nodes {
+            location { name }
+            quantities(names: ["available", "on_hand", "committed", "incoming"]) {
+              name
+              quantity
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Batching rule in current code:
+
+- batch `ProductVariant` IDs in groups of `50`
+- send them as `gid://shopify/ProductVariant/{variantId}`
+- map `legacyResourceId -> inventory levels by location name`
+- normalize only the named locations the UI currently needs
+
 Practical note:
 
 - A useful transfer filter here is: order tagged `Lakewood`, item not available in `Lakewood`, and item available in `PIO - A . I . S T O N E`.
@@ -77,6 +159,57 @@ Practical note:
   - `item.stock.pio.onHand`
   - `item.stock.pio.committed`
 - Also expose `order.isLakewoodTagged` as a boolean derived from the order tags.
+
+Current normalized `/api/transfers` order shape:
+
+```json
+{
+  "id": 11226996375915,
+  "name": "#330572",
+  "createdAt": "2026-03-29T19:23:04-04:00",
+  "customerName": "Jennifer Pollock",
+  "fulfillmentStatus": "unfulfilled",
+  "financialStatus": "authorized",
+  "totalPrice": 329.94,
+  "currency": "USD",
+  "sourceName": "shopify_draft_order",
+  "shippingName": "Jennifer Pollock",
+  "city": "Atlanta",
+  "province": "Georgia",
+  "tags": "PIO - A . I . S T O N E",
+  "note": "",
+  "isLakewoodTagged": false,
+  "itemCount": 4,
+  "items": [
+    {
+      "id": 33998789083499,
+      "title": "Mens Twill Cutaway Collar Extra Slim Fit French Cuff",
+      "variantTitle": "14 32",
+      "sku": "MTCE-FC-DP-1432",
+      "quantity": 2,
+      "variantId": 9001247965220,
+      "stock": {
+        "lakewood": {
+          "available": 142,
+          "onHand": 142,
+          "committed": 0
+        },
+        "pio": {
+          "available": 0,
+          "onHand": 3,
+          "committed": 3
+        }
+      }
+    }
+  ]
+}
+```
+
+Implementation details:
+
+- if a variant has no matching inventory node, the normalized stock object should still be safe to read
+- missing location quantities normalize to `0`
+- `Lakewood` and `PIO - A . I . S T O N E` are keyed in the UI as `lakewood` and `pio`
 
 ## Transfers UI behavior
 
@@ -100,6 +233,19 @@ Verified result during implementation:
 - `/api/transfers` returned 30 qualifying orders
 - 54 line items had stock data
 - 2 line items matched the Lakewood/PIO transfer filter at the time of verification
+
+## Additional GraphQL checks used during implementation
+
+These checks were useful while building and debugging:
+
+- location inventory probe on a real order item
+  - confirmed that `PIO - A . I . S T O N E` appears on `inventoryLevels`
+- one-off order check for `#330572`
+  - GraphQL returned `displayFulfillmentStatus: IN_PROGRESS`
+  - REST order filters alone were not enough to exclude it
+- location listing query
+  - top-level location queries showed `Lakewood`, `Jackson`, and `Digital Goods`
+  - inventory-level location data exposed `PIO - A . I . S T O N E`, so do not assume the simpler location list is the whole story
 
 ## Pagination
 
