@@ -574,16 +574,16 @@ function formatCartForSpeech(cart) {
 
 function formatCartPlaybackLine(item, index, totalItems) {
   return [
-    `Item ${index + 1} of ${totalItems}.`,
-    `Quantity ${item.quantity}.`,
-    `${item.category} ${item.style} shirt.`,
-    `Collar ${item.collar}.`,
-    `Size ${item.size}.`,
-    `Sleeve ${item.sleeve}.`,
-    `Fit ${item.fit}.`,
-    `${item.pocket}.`,
-    `${item.cuff}.`,
-    `Fabric twill.`,
+    `Item ${index + 1} of ${totalItems},`,
+    `quantity ${item.quantity},`,
+    `${item.category} ${item.style} shirt,`,
+    `collar ${item.collar},`,
+    `size ${item.size},`,
+    `sleeve ${item.sleeve},`,
+    `fit ${item.fit},`,
+    `${String(item.pocket || "").replace(/\.$/, "")},`,
+    `${String(item.cuff || "").replace(/\.$/, "")},`,
+    `fabric twill,`,
     `Line total ${calculateLineTotal(item)} dollars.`
   ].join(" ");
 }
@@ -959,11 +959,10 @@ function cartReturnPath(context) {
   return context === "postadd" || context === "summary" ? "/api/twilio/order/summary" : "/api/twilio/voice";
 }
 
-function buildCartPlaybackRoute(context, index, phase, announce = false) {
+function buildCartPlaybackRoute(context, index, announce = false) {
   const params = new URLSearchParams({
     context,
-    index: String(index),
-    phase
+    index: String(index)
   });
 
   if (announce) {
@@ -973,7 +972,7 @@ function buildCartPlaybackRoute(context, index, phase, announce = false) {
   return `/api/twilio/cart/play?${params.toString()}`;
 }
 
-function cartPlaybackResponse(baseUrl, session, context, index, phase, announce) {
+function cartPlaybackResponse(baseUrl, session, context, index, announce) {
   if (!session.cart.length) {
     return twiml([say("Your cart is empty."), redirect(baseUrl, cartReturnPath(context))]);
   }
@@ -981,41 +980,23 @@ function cartPlaybackResponse(baseUrl, session, context, index, phase, announce)
   const safeIndex = Math.max(0, Math.min(index, session.cart.length - 1));
   const item = session.cart[safeIndex];
   const parts = [];
-
-  if (announce) {
-    parts.push(say("While listening to the cart, press 1 to replay the item. Press 3 to skip to the next item. Press 5 to delete this item from your cart."));
-    parts.push(pause(1));
-  }
-
-  if (phase === "intro") {
-    parts.push(
-      gather(baseUrl, {
-        action: `/api/twilio/cart/control?context=${encodeURIComponent(context)}&index=${safeIndex}&phase=intro`,
-        input: "dtmf",
-        numDigits: 1,
-        timeout: 1,
-        hints: "replay, previous, skip, next, delete, remove",
-        prompt: `Item ${safeIndex + 1}.`
-      })
-    );
-    parts.push(redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, "detail")));
-    return twiml(parts);
-  }
+  const prompt = announce
+    ? `While listening to the cart, press 1 to replay the item. Press 3 to skip to the next item. Press 5 to delete this item from your cart. ${formatCartPlaybackLine(item, safeIndex, session.cart.length)}`
+    : formatCartPlaybackLine(item, safeIndex, session.cart.length);
 
   parts.push(
     gather(baseUrl, {
-      action: `/api/twilio/cart/control?context=${encodeURIComponent(context)}&index=${safeIndex}&phase=detail`,
+      action: `/api/twilio/cart/control?context=${encodeURIComponent(context)}&index=${safeIndex}`,
       input: "dtmf",
       numDigits: 1,
       timeout: 1,
       hints: "replay, previous, skip, next, delete, remove",
-      prompt: formatCartPlaybackLine(item, safeIndex, session.cart.length)
+      prompt
     })
   );
 
   if (safeIndex < session.cart.length - 1) {
-    parts.push(pause(1));
-    parts.push(redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, "intro")));
+    parts.push(redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1)));
   } else {
     parts.push(say("End of cart."));
     parts.push(redirect(baseUrl, cartReturnPath(context)));
@@ -1024,7 +1005,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, phase, announce)
   return twiml(parts);
 }
 
-function cartControlResponse(baseUrl, session, context, index, phase, selection) {
+function cartControlResponse(baseUrl, session, context, index, selection) {
   if (!session.cart.length) {
     return twiml([say("Your cart is empty."), redirect(baseUrl, cartReturnPath(context))]);
   }
@@ -1032,20 +1013,15 @@ function cartControlResponse(baseUrl, session, context, index, phase, selection)
   const safeIndex = Math.max(0, Math.min(index, session.cart.length - 1));
 
   if (!selection) {
-    if (phase === "intro") {
-      return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, "detail"))]);
-    }
-
     if (safeIndex >= session.cart.length - 1) {
       return twiml([say("End of cart."), redirect(baseUrl, cartReturnPath(context))]);
     }
 
-    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, "intro"))]);
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1))]);
   }
 
   if (selection === "1") {
-    const targetIndex = phase === "intro" ? Math.max(safeIndex - 1, 0) : safeIndex;
-    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, targetIndex, "intro"))]);
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, true))]);
   }
 
   if (selection === "3") {
@@ -1053,10 +1029,10 @@ function cartControlResponse(baseUrl, session, context, index, phase, selection)
       return twiml([say("End of cart."), redirect(baseUrl, cartReturnPath(context))]);
     }
 
-    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, "intro"))]);
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, true))]);
   }
 
-  return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, phase))]);
+  return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, true))]);
 }
 
 function invalidSelectionResponse(baseUrl, message, fallbackPath) {
@@ -1214,7 +1190,7 @@ async function handleMainMenu(req, res, baseUrl) {
       return;
     }
 
-    xml(res, 200, cartPlaybackResponse(baseUrl, session, "summary", 0, "intro", true));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "summary", 0, true));
     return;
   }
 
@@ -1269,10 +1245,9 @@ async function handleCartPlayback(req, res, baseUrl) {
   const rawContext = current.searchParams.get("context");
   const context = rawContext === "postadd" || rawContext === "summary" ? rawContext : "voice";
   const index = Number(current.searchParams.get("index") || 0);
-  const phase = current.searchParams.get("phase") === "detail" ? "detail" : "intro";
   const announce = current.searchParams.get("announce") === "1";
 
-  xml(res, 200, cartPlaybackResponse(baseUrl, session, context, index, phase, announce));
+  xml(res, 200, cartPlaybackResponse(baseUrl, session, context, index, announce));
 }
 
 async function handleCartControl(req, res, baseUrl) {
@@ -1282,7 +1257,6 @@ async function handleCartControl(req, res, baseUrl) {
   const rawContext = current.searchParams.get("context");
   const context = rawContext === "postadd" || rawContext === "summary" ? rawContext : "voice";
   const index = Number(current.searchParams.get("index") || 0);
-  const phase = current.searchParams.get("phase") === "detail" ? "detail" : "intro";
   const selection = normalizeCartPlaybackSelection(form.Digits || form.SpeechResult);
 
   if (selection === "5") {
@@ -1304,12 +1278,12 @@ async function handleCartControl(req, res, baseUrl) {
     xml(
       res,
       200,
-      twiml([say("Item deleted."), redirect(baseUrl, buildCartPlaybackRoute(context, nextIndex, "intro", true))])
+      twiml([say("Item deleted."), redirect(baseUrl, buildCartPlaybackRoute(context, nextIndex, true))])
     );
     return;
   }
 
-  xml(res, 200, cartControlResponse(baseUrl, session, context, index, phase, selection));
+  xml(res, 200, cartControlResponse(baseUrl, session, context, index, selection));
 }
 
 async function handleCurrentOrderMenu(req, res, baseUrl) {
@@ -1701,7 +1675,7 @@ async function handlePostAddMenu(req, res, baseUrl) {
   }
 
   if (selection === "2") {
-    xml(res, 200, cartPlaybackResponse(baseUrl, session, "postadd", 0, "intro", true));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "postadd", 0, true));
     return;
   }
 
