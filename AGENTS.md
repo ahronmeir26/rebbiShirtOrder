@@ -4,7 +4,8 @@
 - When relevant, mention whether the running dev server reflects the newest code or needs a restart.
 - When the user says to remember a repo-specific workflow or preference, add it to `AGENTS.md`.
 - Do not commit or push changes unless the user explicitly asks.
-- When the user says `commit`, commit the current changes and push them to `origin`.
+- When the user says `commit`, commit the current changes locally without pushing.
+- When the user says `deploy`, commit the current changes and push them to `origin`.
 - When implementing features in this repo, make sure the behavior works in both local dev and Vercel environments.
 - When running the local dev server for this repo, also run ngrok so Twilio can reach the local app.
 - When the issue is clearly Vercel-only, do not treat restarting the local dev server as meaningful verification.

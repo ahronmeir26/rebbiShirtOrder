@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node src/local-server.js",
     "start": "node src/local-server.js",
-    "check": "node --check src/ivr.js && node --check src/transfers.js && node --check src/local-server.js && node --check src/vercel-twilio-route.js && node --check api/health.js && node --check api/orders.js && node --check api/transfers.js && node --check api/twilio/voice.js && node --check api/twilio/menu.js && node --check api/twilio/order/start.js && node --check api/twilio/order/current.js && node --check api/twilio/order/summary.js && node --check api/twilio/order/back.js && node --check api/twilio/order/category.js && node --check api/twilio/order/style.js && node --check api/twilio/order/collar.js && node --check api/twilio/order/size.js && node --check api/twilio/order/sleeve.js && node --check api/twilio/order/fit.js && node --check api/twilio/order/pocket.js && node --check api/twilio/order/cuff.js && node --check api/twilio/order/quantity.js && node --check api/twilio/order/next.js && node --check api/twilio/cart/play.js && node --check api/twilio/cart/control.js && node --check api/twilio/test/reset.js"
+    "check": "node --check src/ivr.js && node --check src/transfers.js && node --check src/local-server.js && node --check src/vercel-twilio-route.js && node --check api/health.js && node --check api/orders.js && node --check api/transfers.js && node --check api/twilio/voice.js && node --check api/twilio/menu.js && node --check 'api/twilio/[section]/[step].js'"
   },
   "keywords": [
     "twilio",
