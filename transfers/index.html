@@ -11,12 +11,12 @@
         --navy-deep: #1c3668;
         --ink: #2b3441;
         --muted: #6f7785;
-        --workspace: #f1f3f7;
+        --workspace: #eef2f7;
         --card: #ffffff;
         --line: #dde2ea;
-        --mist: #eef3fb;
+        --mist: #f4f7fc;
         --green-ink: #2d6d59;
-        --shadow: 0 10px 26px rgba(19, 43, 84, 0.08);
+        --shadow: 0 8px 24px rgba(19, 43, 84, 0.05);
       }
 
       * {
@@ -28,7 +28,7 @@
         min-height: 100vh;
         background: var(--workspace);
         color: var(--ink);
-        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-family: "IBM Plex Sans", "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
       }
 
       .topbar {
@@ -36,10 +36,10 @@
         justify-content: space-between;
         gap: 18px;
         align-items: center;
-        padding: 18px 18px 14px;
-        background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+        padding: 22px 22px 18px;
+        background: #ffffff;
         border-bottom: 1px solid rgba(36, 71, 143, 0.12);
-        box-shadow: 0 2px 12px rgba(17, 34, 68, 0.03);
+        box-shadow: 0 1px 0 rgba(17, 34, 68, 0.03);
       }
 
       .brand {
@@ -50,10 +50,10 @@
       }
 
       .wordmark {
-        font-size: clamp(2rem, 3.8vw, 2.9rem);
-        line-height: 0.9;
-        font-weight: 500;
-        letter-spacing: 0.03em;
+        font-size: clamp(2rem, 3.8vw, 3rem);
+        line-height: 0.88;
+        font-weight: 400;
+        letter-spacing: 0.045em;
         color: #303846;
         white-space: nowrap;
       }
@@ -66,14 +66,15 @@
 
       .brand-title {
         margin: 0;
-        font-size: clamp(1.4rem, 2.2vw, 2rem);
-        font-weight: 700;
+        font-size: clamp(1.35rem, 2vw, 1.85rem);
+        font-weight: 600;
+        letter-spacing: -0.02em;
       }
 
       .brand-subtitle {
-        margin: 4px 0 0;
+        margin: 6px 0 0;
         color: var(--muted);
-        font-size: 0.98rem;
+        font-size: 0.94rem;
       }
 
       .top-actions {
@@ -86,14 +87,13 @@
       .ghost-button {
         appearance: none;
         border: 1px solid rgba(36, 71, 143, 0.18);
-        background: #fff;
+        background: transparent;
         color: #363f4f;
-        border-radius: 12px;
-        padding: 10px 14px;
+        border-radius: 999px;
+        padding: 10px 15px;
         font: inherit;
         font-weight: 600;
         cursor: pointer;
-        box-shadow: 0 2px 8px rgba(22, 38, 70, 0.05);
       }
 
       .ghost-button.primary {
@@ -109,7 +109,7 @@
       .shell {
         max-width: 1380px;
         margin: 0 auto;
-        padding: 22px 18px 54px;
+        padding: 22px 22px 54px;
       }
 
       .summary {
@@ -117,9 +117,9 @@
         justify-content: space-between;
         gap: 14px;
         align-items: center;
-        margin-bottom: 18px;
+        margin-bottom: 20px;
         color: var(--muted);
-        font-size: 0.98rem;
+        font-size: 0.92rem;
       }
 
       .summary strong {
@@ -136,7 +136,7 @@
       .orders {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 16px;
+        gap: 14px;
       }
 
       .empty {
@@ -155,13 +155,13 @@
         flex-direction: column;
         background: var(--card);
         border: 1px solid rgba(36, 71, 143, 0.12);
-        border-radius: 16px;
-        box-shadow: 0 6px 18px rgba(19, 43, 84, 0.05);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
         overflow: hidden;
       }
 
       .order-body {
-        padding: 15px 15px 10px;
+        padding: 14px 14px 8px;
         display: flex;
         flex-direction: column;
         min-height: 0;
@@ -173,7 +173,7 @@
 
       .order-number {
         margin: 0;
-        font-size: 1.02rem;
+        font-size: 0.98rem;
         font-weight: 600;
         letter-spacing: 0;
         color: #2f3743;
@@ -185,16 +185,16 @@
         align-items: center;
         margin-top: 8px;
         color: var(--muted);
-        font-size: 0.92rem;
+        font-size: 0.88rem;
       }
 
       .customer-icon {
-        font-size: 0.82rem;
+        display: none;
       }
 
       .items {
-        margin-top: 14px;
-        font-size: 0.9rem;
+        margin-top: 12px;
+        font-size: 0.88rem;
         line-height: 1.45;
         color: #333d4d;
         min-height: 0;
@@ -205,24 +205,24 @@
         padding: 0;
         list-style: none;
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
 
       .item-line {
-        padding: 9px 10px;
-        border-radius: 10px;
+        padding: 8px 9px;
+        border-radius: 9px;
         background: var(--mist);
         border: 1px solid rgba(36, 71, 143, 0.08);
       }
 
       .item-name {
         color: #333d4d;
-        font-weight: 600;
+        font-weight: 500;
       }
 
       .item-meta {
         margin-top: 3px;
-        font-size: 0.83rem;
+        font-size: 0.8rem;
         color: var(--muted);
       }
 
@@ -231,58 +231,58 @@
         gap: 12px;
         align-items: center;
         flex-wrap: wrap;
-        margin-top: 12px;
-        font-size: 0.84rem;
+        margin-top: 10px;
+        font-size: 0.8rem;
         color: #303846;
       }
 
       .price {
-        font-size: 0.86rem;
-        font-weight: 700;
+        font-size: 0.82rem;
+        font-weight: 600;
         color: var(--navy-deep);
       }
 
       .source {
         color: var(--muted);
-        font-weight: 600;
+        font-weight: 500;
       }
 
       .time {
         color: var(--muted);
-        font-weight: 600;
+        font-weight: 500;
       }
 
       .order-footer {
         margin-top: auto;
-        padding: 10px 15px 13px;
+        padding: 10px 14px 12px;
         border-top: 1px solid var(--line);
-        background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(238,243,251,0.72) 100%);
+        background: #ffffff;
       }
 
       .foot-note {
         margin: 0;
         color: var(--muted);
         line-height: 1.45;
-        font-size: 0.88rem;
+        font-size: 0.82rem;
         white-space: pre-wrap;
       }
 
       .aux {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 10px;
+        gap: 6px;
+        margin-top: 8px;
       }
 
       .tag {
         display: inline-flex;
         align-items: center;
-        padding: 5px 9px;
+        padding: 4px 8px;
         border-radius: 999px;
         background: rgba(36, 71, 143, 0.08);
         color: var(--navy-deep);
-        font-size: 0.75rem;
-        font-weight: 600;
+        font-size: 0.72rem;
+        font-weight: 500;
       }
 
       .tag.location {
@@ -296,13 +296,13 @@
       }
 
       .sku-list {
-        margin-top: 12px;
+        margin-top: 10px;
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
 
       .sku-line {
-        font-size: 0.8rem;
+        font-size: 0.76rem;
         color: var(--muted);
       }
 
