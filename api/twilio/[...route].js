@@ -1,6 +1,14 @@
 const { handleHttpRequest } = require("../../src/ivr");
 
 module.exports = async function handler(req, res) {
+  console.log(
+    `[twilio-debug] vercel-entry ${JSON.stringify({
+      url: req.url,
+      route: req.query?.route,
+      queryKeys: req.query ? Object.keys(req.query) : [],
+      bodyType: typeof req.body
+    })}`
+  );
   req.url = buildRequestUrl(req);
   await handleHttpRequest(req, res);
 };

@@ -179,6 +179,44 @@ function parseFormBody(req) {
   });
 }
 
+function safeJson(value) {
+  try {
+    return JSON.stringify(value);
+  } catch (_error) {
+    return "\"[unserializable]\"";
+  }
+}
+
+function summarizeTwilioRequest(req, pathname) {
+  const query =
+    req.query && typeof req.query === "object"
+      ? Object.fromEntries(Object.entries(req.query).map(([key, value]) => [key, Array.isArray(value) ? value : String(value)]))
+      : undefined;
+  const body =
+    req.body && typeof req.body === "object"
+      ? {
+          CallSid: req.body.CallSid,
+          Digits: req.body.Digits,
+          From: req.body.From,
+          SpeechResult: req.body.SpeechResult,
+          route: req.body.route
+        }
+      : req.body;
+
+  return {
+    method: req.method,
+    url: req.url,
+    pathname,
+    query,
+    bodyType: typeof req.body,
+    body
+  };
+}
+
+function logTwilioDebug(event, details) {
+  console.log(`[twilio-debug] ${event} ${safeJson(details)}`);
+}
+
 function resolvePathname(req) {
   const current = new URL(String(req.url || "/"), "http://localhost");
 
@@ -1312,6 +1350,10 @@ async function handlePostAddMenu(req, res, baseUrl) {
 }
 
 function routeRequest(req, res, pathname, baseUrl) {
+  if (pathname.startsWith("/api/twilio")) {
+    logTwilioDebug("route", summarizeTwilioRequest(req, pathname));
+  }
+
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     html(res, 200, fs.readFileSync(dashboardFile, "utf8"));
     return Promise.resolve();
@@ -1411,6 +1453,21 @@ async function handleHttpRequest(req, res, options = {}) {
     const baseUrl = buildBaseUrl(req, options.baseUrl || process.env.BASE_URL);
     await routeRequest(req, res, pathname, baseUrl);
   } catch (error) {
+    const pathname = (() => {
+      try {
+        return resolvePathname(req);
+      } catch (_innerError) {
+        return "unresolved";
+      }
+    })();
+
+    logTwilioDebug("error", {
+      request: summarizeTwilioRequest(req, pathname),
+      error: {
+        message: error.message,
+        stack: error.stack
+      }
+    });
     json(res, 500, {
       error: "Internal server error",
       details: error.message
