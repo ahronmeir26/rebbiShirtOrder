@@ -2,8 +2,24 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/testivr",
+      "destination": "/testivr/index.html"
+    },
+    {
+      "source": "/transfers",
+      "destination": "/transfers/index.html"
+    },
+    {
       "source": "/rso",
       "destination": "/"
+    },
+    {
+      "source": "/rso/testivr",
+      "destination": "/testivr/index.html"
+    },
+    {
+      "source": "/rso/transfers",
+      "destination": "/transfers/index.html"
     },
     {
       "source": "/rso/:path*",
