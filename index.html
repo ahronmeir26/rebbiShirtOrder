@@ -318,7 +318,7 @@
     <main class="shell">
       <section class="hero">
         <div class="brand">
-          <img class="logo" src="/logo-aistone.png" alt="A.I. Stone" />
+          <img class="logo" id="brand-logo" alt="A.I. Stone" />
           <div class="brand-copy">
             <p class="brand-kicker">Order Desk</p>
             <p class="brand-title">Phone Orders Dashboard</p>
@@ -373,7 +373,15 @@
       const testIvrButton = document.getElementById("testivr-button");
       const refreshButton = document.getElementById("refresh-button");
       const autoRefresh = document.getElementById("auto-refresh");
+      const brandLogo = document.getElementById("brand-logo");
       let timer = null;
+      const appPrefix = window.location.pathname === "/rso" || window.location.pathname.startsWith("/rso/") ? "/rso" : "";
+
+      function appUrl(path) {
+        return `${appPrefix}${path}`;
+      }
+
+      brandLogo.src = appUrl("/logo-aistone.png");
 
       function formatTime(value) {
         if (!value) return "Unknown";
@@ -502,7 +510,7 @@
       async function loadOrders() {
         try {
           statusEl.textContent = "Loading orders…";
-          const response = await fetch("/api/orders", { cache: "no-store" });
+          const response = await fetch(appUrl("/api/orders"), { cache: "no-store" });
           if (!response.ok) throw new Error(`Request failed with ${response.status}`);
           const orders = await response.json();
           orderCountEl.textContent = String(orders.length);
@@ -528,7 +536,7 @@
 
       refreshButton.addEventListener("click", loadOrders);
       testIvrButton.addEventListener("click", () => {
-        window.location.href = "/testivr";
+        window.location.href = appUrl("/testivr");
       });
       autoRefresh.addEventListener("change", setAutoRefresh);
 

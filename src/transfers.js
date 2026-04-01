@@ -5,6 +5,7 @@ const transfersPageFile = path.join(__dirname, "..", "transfers", "index.html");
 let shopifyTokenCache = null;
 const LAKEWOOD_LOCATION = "Lakewood";
 const PIO_LOCATION = "PIO - A . I . S T O N E";
+const ROUTE_PREFIXES = ["/rso"];
 
 function json(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
@@ -14,6 +15,20 @@ function json(res, statusCode, payload) {
 function html(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": "text/html; charset=utf-8" });
   res.end(payload);
+}
+
+function normalizeMountedPath(pathname) {
+  for (const prefix of ROUTE_PREFIXES) {
+    if (pathname === prefix) {
+      return "/";
+    }
+
+    if (pathname.startsWith(`${prefix}/`)) {
+      return pathname.slice(prefix.length) || "/";
+    }
+  }
+
+  return pathname;
 }
 
 function shopifyConfig() {
@@ -416,7 +431,7 @@ function normalizeStockLevels(levels) {
 
 async function handleTransfersRequest(req, res) {
   try {
-    const pathname = new URL(req.url, "http://localhost").pathname;
+    const pathname = normalizeMountedPath(new URL(req.url, "http://localhost").pathname);
 
     if (req.method === "GET" && (pathname === "/transfers" || pathname === "/transfers/")) {
       html(res, 200, fs.readFileSync(transfersPageFile, "utf8"));

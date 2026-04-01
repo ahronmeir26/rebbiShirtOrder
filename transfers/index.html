@@ -504,9 +504,16 @@
       const filtersEl = document.getElementById("filters");
       const tabs = Array.from(document.querySelectorAll("[data-tab]"));
       const filterButtons = Array.from(document.querySelectorAll("[data-filter]"));
+      const appPrefix = window.location.pathname === "/rso/transfers" || window.location.pathname.startsWith("/rso/")
+        ? "/rso"
+        : "";
       let latestPayload = null;
       let activeTab = "orders";
       let activeFilter = "all";
+
+      function appUrl(path) {
+        return `${appPrefix}${path}`;
+      }
 
       function escapeHtml(value) {
         return String(value || "")
@@ -714,7 +721,7 @@
 
       async function loadTransfers() {
         try {
-          const response = await fetch("/api/transfers", { cache: "no-store" });
+          const response = await fetch(appUrl("/api/transfers"), { cache: "no-store" });
           const payload = await response.json();
           renderOrders(payload);
         } catch (error) {

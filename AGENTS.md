@@ -7,7 +7,9 @@
 - When the user says `commit`, commit the current changes locally without pushing.
 - When the user says `deploy`, commit the current changes and push them to `origin`.
 - When implementing features in this repo, make sure the behavior works in both local dev and Vercel environments.
+- For any code change in this repo, always verify the implementation will work on the Vercel server, not just in local dev.
 - When running the local dev server for this repo, also run ngrok so Twilio can reach the local app.
+- Start ngrok for this repo with `/tmp/ngrok-install/ngrok http 3000` whenever starting the local dev server.
 - When the issue is clearly Vercel-only, do not treat restarting the local dev server as meaningful verification.
 - For Twilio routes on Vercel, do not assume nested paths are covered automatically; add or verify explicit Vercel route wrappers for nested endpoints like `/api/twilio/order/...` or `/api/twilio/cart/...` so production routing matches local routing.
 - When loading data from Shopify in this repo, reference the local skill at `.codex/skills/shopify-loader/SKILL.md`.

@@ -251,7 +251,7 @@
         <p>Browser-based Twilio flow tester. This uses the real IVR routes and a fixed fake caller number so cart behavior is easy to reproduce.</p>
         <p class="meta">Fake caller: <code id="fake-number">+15555550123</code></p>
         <div class="hero-actions">
-          <a class="hero-link" href="/">View Orders</a>
+          <a class="hero-link" id="orders-link" href="/">View Orders</a>
         </div>
       </section>
 
@@ -292,15 +292,25 @@
 
     <script>
       const TEST_FROM = "+15555550123";
+      const appPrefix = window.location.pathname === "/rso/testivr" || window.location.pathname.startsWith("/rso/")
+        ? "/rso"
+        : "";
       let callSid = "";
-      let nextAction = "/api/twilio/menu";
+      let nextAction = `${appPrefix}/api/twilio/menu`;
       let fallbackRedirect = "";
       let autoTimer = null;
       let awaitingInput = false;
 
+      const ordersLinkEl = document.getElementById("orders-link");
       const messagesEl = document.getElementById("messages");
       const statusEl = document.getElementById("status");
       const manualInputEl = document.getElementById("manual-input");
+
+      function appUrl(path) {
+        return `${appPrefix}${path}`;
+      }
+
+      ordersLinkEl.href = appUrl("/");
 
       function fakeCallSid() {
         return `CATEST${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -395,12 +405,12 @@
       async function startCall() {
         cancelAutoTimer();
         callSid = fakeCallSid();
-        nextAction = "/api/twilio/menu";
+        nextAction = appUrl("/api/twilio/menu");
         fallbackRedirect = "";
         awaitingInput = false;
         messagesEl.innerHTML = "";
         setStatus("Starting test call...");
-        await postToIvr("/api/twilio/voice");
+        await postToIvr(appUrl("/api/twilio/voice"));
       }
 
       async function sendDigits(digits) {
@@ -420,14 +430,14 @@
           callSid = fakeCallSid();
         }
 
-        await fetch("/api/twilio/test/reset", {
+        await fetch(appUrl("/api/twilio/test/reset"), {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({ CallSid: callSid, From: TEST_FROM })
         });
 
         messagesEl.innerHTML = "";
-        nextAction = "/api/twilio/menu";
+        nextAction = appUrl("/api/twilio/menu");
         fallbackRedirect = "";
         awaitingInput = false;
         setStatus("Test session cleared.");

@@ -11,9 +11,23 @@ const PORT = Number(process.env.PORT || 3000);
 
 ensureDataStore();
 
+function normalizePathname(pathname) {
+  if (pathname === "/rso") {
+    return "/";
+  }
+
+  if (pathname.startsWith("/rso/")) {
+    return pathname.slice("/rso".length) || "/";
+  }
+
+  return pathname;
+}
+
 const server = http.createServer((req, res) => {
-  const pathname = new URL(req.url, "http://localhost").pathname;
+  const current = new URL(req.url, "http://localhost");
+  const pathname = normalizePathname(current.pathname);
   if (pathname === "/transfers" || pathname === "/transfers/" || pathname === "/api/transfers") {
+    req.url = pathname + current.search;
     return handleTransfersRequest(req, res);
   }
 

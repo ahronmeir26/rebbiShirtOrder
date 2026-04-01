@@ -8,6 +8,7 @@ const logoFile = path.join(__dirname, "..", "logo-aistone.png");
 const pricingFile = path.join(__dirname, "..", "pricing.json");
 const DEFAULT_VOICE = process.env.TTS_VOICE || "Google.en-US-Standard-C";
 const DEFAULT_LANGUAGE = process.env.TTS_LANGUAGE || "en-US";
+const ROUTE_PREFIXES = ["/rso"];
 
 const categories = {
   1: { id: "mens", name: "mens" },
@@ -16,7 +17,7 @@ const categories = {
 
 const styles = {
   1: { id: "standard", name: "standard" },
-  2: { id: "chassidish", name: "khosseedish" }
+  2: { id: "chassidish", name: "khoss seedish" }
 };
 
 const collars = {
@@ -95,23 +96,42 @@ function escapeXml(value) {
     .replaceAll("'", "&apos;");
 }
 
+function normalizeMountedPath(pathname) {
+  for (const prefix of ROUTE_PREFIXES) {
+    if (pathname === prefix) {
+      return { pathname: "/", routePrefix: prefix };
+    }
+
+    if (pathname.startsWith(`${prefix}/`)) {
+      return {
+        pathname: pathname.slice(prefix.length) || "/",
+        routePrefix: prefix
+      };
+    }
+  }
+
+  return { pathname, routePrefix: "" };
+}
+
 function buildBaseUrl(req, envBaseUrl) {
   const isVercelRuntime = String(process.env.VERCEL || "").toLowerCase() === "1";
   const forwardedProto = String(req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
   const forwardedHost = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:3000")
     .split(",")[0]
     .trim();
+  const current = new URL(String(req.url || "/"), "http://localhost");
+  const { routePrefix } = normalizeMountedPath(current.pathname);
 
   if (isVercelRuntime && forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`;
+    return `${forwardedProto}://${forwardedHost}${routePrefix}`;
   }
 
   const configured = String(envBaseUrl || "").trim().replace(/\/$/, "");
   if (configured) {
-    return configured;
+    return `${configured}${routePrefix}`;
   }
 
-  return `${forwardedProto}://${forwardedHost}`;
+  return `${forwardedProto}://${forwardedHost}${routePrefix}`;
 }
 
 function isVercelRuntime() {
@@ -266,9 +286,10 @@ function getTwilioRouteParam(req, current) {
 
 function resolvePathname(req) {
   const current = new URL(String(req.url || "/"), "http://localhost");
+  const normalized = normalizeMountedPath(current.pathname);
 
-  if (current.pathname !== "/api/twilio/[...route]") {
-    return current.pathname;
+  if (normalized.pathname !== "/api/twilio/[...route]") {
+    return normalized.pathname;
   }
 
   const routeParam = getTwilioRouteParam(req, current);
@@ -758,8 +779,6 @@ function normalizeCartPlaybackSelection(input) {
   return normalizeSimpleSelection(input, {
     "1": "1",
     one: "1",
-    replay: "1",
-    repeat: "1",
     previous: "1",
     back: "1",
     "3": "3",
@@ -814,8 +833,8 @@ function styleMenuResponse(baseUrl, pendingItem) {
       action: withPendingState("/api/twilio/order/style", pendingItem),
       input: "dtmf",
       numDigits: 1,
-      hints: "standard, khosseedish",
-      prompt: `You selected ${categoryName}. Press 1 for standard shirts. Press 2 for khosseedish shirts. Press star to go back.`
+      hints: "standard, khoss seedish",
+      prompt: `You selected ${categoryName}. Press 1 for standard shirts. Press 2 for khoss seedish shirts. Press star to go back.`
     }),
     say("We did not receive a style selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
@@ -981,7 +1000,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, announce) {
   const item = session.cart[safeIndex];
   const parts = [];
   const prompt = announce
-    ? `While listening to the cart, press 1 to replay the item. Press 3 to skip to the next item. Press 5 to delete this item from your cart. ${formatCartPlaybackLine(item, safeIndex, session.cart.length)}`
+    ? `While listening to the cart, press 1 to go to the previous item. Press 3 to skip to the next item. Press 5 to delete this item from your cart. ${formatCartPlaybackLine(item, safeIndex, session.cart.length)}`
     : formatCartPlaybackLine(item, safeIndex, session.cart.length);
 
   parts.push(
@@ -990,7 +1009,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, announce) {
       input: "dtmf",
       numDigits: 1,
       timeout: 1,
-      hints: "replay, previous, skip, next, delete, remove",
+      hints: "previous, back, skip, next, delete, remove",
       prompt
     })
   );
@@ -1021,7 +1040,7 @@ function cartControlResponse(baseUrl, session, context, index, selection) {
   }
 
   if (selection === "1") {
-    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, true))]);
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, Math.max(safeIndex - 1, 0)))]);
   }
 
   if (selection === "3") {
@@ -1029,10 +1048,10 @@ function cartControlResponse(baseUrl, session, context, index, selection) {
       return twiml([say("End of cart."), redirect(baseUrl, cartReturnPath(context))]);
     }
 
-    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1, true))]);
+    return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex + 1))]);
   }
 
-  return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex, true))]);
+  return twiml([redirect(baseUrl, buildCartPlaybackRoute(context, safeIndex))]);
 }
 
 function invalidSelectionResponse(baseUrl, message, fallbackPath) {
@@ -1278,7 +1297,7 @@ async function handleCartControl(req, res, baseUrl) {
     xml(
       res,
       200,
-      twiml([say("Item deleted."), redirect(baseUrl, buildCartPlaybackRoute(context, nextIndex, true))])
+      twiml([say("Item deleted."), redirect(baseUrl, buildCartPlaybackRoute(context, nextIndex))])
     );
     return;
   }
