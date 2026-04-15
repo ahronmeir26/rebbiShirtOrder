@@ -39,6 +39,9 @@ Use the same split unless there is a strong reason to rewrite the flow fully in 
 - For stores owned by the same organization, `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` can be exchanged at `POST https://{shop}.myshopify.com/admin/oauth/access_token` with `grant_type=client_credentials`.
 - Tokens from the client credentials grant expire after 24 hours, so server code should be ready to refresh them.
 - A Dev Dashboard app client secret is not itself an Admin API token. It must be exchanged for one first.
+- Draft order creation requires `write_draft_orders` or `write_quick_sale`, plus a user/app context that can manage draft orders.
+- Completing a draft into a real order uses `draftOrderComplete(id: ...)` after `draftOrderCreate`.
+- Discount code lookup with `codeDiscountNodeByCode` requires `read_discounts`.
 
 ## Unfulfilled orders
 
@@ -152,9 +155,73 @@ query VariantInventory($ids: [ID!]!) {
         }
       }
     }
-  }
-}
+        }
+      }
 ```
+
+## Pre-order SKU cache
+
+For IVR pre-order validation in this repo:
+
+1. Treat the Shopify product tag `pre-order` as the source-of-truth tag.
+2. Do not check live stock for this flow.
+3. Download the tagged product variant SKUs once per day and cache only the minimal lookup data the app needs.
+4. Compare the IVR-generated SKU to that local cache instead of shipping the full product listing to the client.
+
+Current implementation notes:
+
+- Query Shopify GraphQL `products` with `query: "tag:pre-order"`.
+- Request only product title plus variant `sku`.
+- Cache only:
+  - `tag`
+  - `refreshedAt`
+  - `skuCount`
+  - `entries[] = { sku, normalizedSku }`
+- In this store, the pre-order variants can differ from IVR-built SKUs in two practical ways:
+  - segment order can vary, such as `PKT-DP` vs `DP-PKT`
+  - some mens pre-order products use `J` in the second prefix position, such as `MJCC...`, while the IVR builds `MTCC...`
+- Normalize for matching by:
+  - uppercasing
+  - mapping prefix position 2 `J -> T`
+  - mapping middle token `SP -> DP`
+  - sorting the middle SKU segments before comparison
+
+Live verification on April 14, 2026:
+
+- `pre-order` matched the actual preorder shirt catalog
+- `Availability_Pre Order` and `sd_preorder` were not the source-of-truth tags for this IVR flow
+- `draftOrderCreate` is currently blocked by the active token scopes in this repo until Shopify access includes `write_draft_orders`
+
+## IVR draft orders
+
+The IVR confirm step in this repo now creates Shopify draft orders instead of only saving local records.
+
+Current implementation:
+
+- match the IVR cart line to a cached preorder Shopify variant
+- keep `variantId`, `sku`, and Shopify `price` in the preorder cache
+- create a draft order with:
+  - variant-backed `lineItems`
+  - tag `ivr`
+  - note containing the caller phone number
+  - `customAttributes` including caller phone, call sid, and local IVR order id
+  - optional `discountCodes` when the caller provides one
+- optionally complete the draft order into a real Shopify order when the persisted `submitShopifyOrder` setting is enabled
+
+Submission toggle behavior:
+
+- default setting comes from `SHOPIFY_SUBMIT_SHOPIFY_ORDER`
+- runtime overrides are stored in `data/app-config.json` locally
+- on Vercel, runtime overrides are stored in Blob at `ivr-config/app-config.json`
+- the `/testivr` page reads and updates this setting through `/api/testivr/settings`
+
+Current pricing approach:
+
+- the IVR subtotal uses the matched Shopify variant prices
+- discount codes are collected by speech near the end of the IVR flow
+- normalize spoken codes by uppercasing and stripping non-alphanumeric characters
+- if `read_discounts` is available, look up the code with `codeDiscountNodeByCode`
+- if `read_discounts` is not available, preserve the entered code and still attach it to the draft order for later analysis
 
 Batching rule in current code:
 

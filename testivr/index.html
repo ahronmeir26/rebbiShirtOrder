@@ -213,6 +213,23 @@
         font-size: 0.84rem;
       }
 
+      .toggle {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.84);
+      }
+
+      .toggle input {
+        margin: 3px 0 0;
+        min-width: 18px;
+        min-height: 18px;
+      }
+
       code {
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.92em;
@@ -262,10 +279,18 @@
 
         <aside class="panel controls">
           <div class="status" id="status">Ready.</div>
+          <label class="toggle" for="submit-order-toggle">
+            <input type="checkbox" id="submit-order-toggle" />
+            <span>
+              Submit a real Shopify order after draft creation.
+              <span class="note small" id="submit-order-note">Loading current setting...</span>
+            </span>
+          </label>
           <div class="actions">
             <button id="start">Start Call</button>
-            <button class="secondary" id="reset">Reset Session</button>
+            <button class="secondary" id="hangup">Hang Up</button>
           </div>
+          <button class="secondary" id="reset">Clear Cart</button>
           <div class="digits">
             <button data-digit="1">1</button>
             <button data-digit="2">2</button>
@@ -281,7 +306,7 @@
             <button data-digit="#">#</button>
           </div>
           <div class="manual">
-            <input id="manual-input" placeholder="Type digits, like 145 or 32" />
+            <input id="manual-input" placeholder="Type digits or letters, like 145 or SAVE25" />
             <button id="send">Send</button>
           </div>
           <button class="secondary" id="continue">Continue Without Input</button>
@@ -300,11 +325,19 @@
       let fallbackRedirect = "";
       let autoTimer = null;
       let awaitingInput = false;
+      let currentGatherInput = "dtmf";
+      let currentGatherNumDigits = 0;
+      let currentGatherFinishOnKey = "#";
+      let dtmfBuffer = "";
+      let dtmfSubmitTimer = null;
+      let callEnded = false;
 
       const ordersLinkEl = document.getElementById("orders-link");
       const messagesEl = document.getElementById("messages");
       const statusEl = document.getElementById("status");
       const manualInputEl = document.getElementById("manual-input");
+      const submitOrderToggleEl = document.getElementById("submit-order-toggle");
+      const submitOrderNoteEl = document.getElementById("submit-order-note");
 
       function appUrl(path) {
         return `${appPrefix}${path}`;
@@ -328,10 +361,22 @@
         statusEl.textContent = text;
       }
 
+      function setSubmitOrderUi(enabled, note) {
+        submitOrderToggleEl.checked = Boolean(enabled);
+        submitOrderNoteEl.textContent = note || (enabled ? "Real Shopify order submission is on." : "Draft-only mode is on.");
+      }
+
       function cancelAutoTimer() {
         if (autoTimer) {
           clearTimeout(autoTimer);
           autoTimer = null;
+        }
+      }
+
+      function cancelDtmfSubmitTimer() {
+        if (dtmfSubmitTimer) {
+          clearTimeout(dtmfSubmitTimer);
+          dtmfSubmitTimer = null;
         }
       }
 
@@ -351,7 +396,7 @@
         const doc = new DOMParser().parseFromString(xmlText, "text/xml");
         const response = doc.querySelector("Response");
         if (!response) {
-          return { lines: [xmlText], action: "", redirect: "", timeout: 0 };
+          return { lines: [xmlText], action: "", redirect: "", timeout: 0, input: "dtmf", hangup: false };
         }
 
         const gather = Array.from(response.children).find((child) => child.tagName === "Gather");
@@ -366,25 +411,37 @@
             lines: gatherLines,
             action,
             redirect,
-            timeout: Number(gather.getAttribute("timeout") || 0)
+            timeout: Number(gather.getAttribute("timeout") || 0),
+            input: (gather.getAttribute("input") || "dtmf").trim().toLowerCase(),
+            numDigits: Number(gather.getAttribute("numDigits") || 0),
+            finishOnKey: gather.getAttribute("finishOnKey") ?? "#",
+            hangup: false
           };
         }
 
         const lines = directChildTexts(response, "Say");
         const redirectNode = Array.from(response.children).find((child) => child.tagName === "Redirect");
+        const hangupNode = Array.from(response.children).find((child) => child.tagName === "Hangup");
         return {
           lines,
           action: "",
           redirect: redirectNode ? normalizeUrl(redirectNode.textContent.trim()) : "",
-          timeout: 0
+          timeout: 0,
+          input: "dtmf",
+          numDigits: 0,
+          finishOnKey: "#",
+          hangup: Boolean(hangupNode)
         };
       }
 
-      async function postToIvr(url, digits = "") {
+      async function postToIvr(url, payload = {}) {
         cancelAutoTimer();
         const body = new URLSearchParams({ CallSid: callSid, From: TEST_FROM });
-        if (digits !== "") {
-          body.set("Digits", digits);
+        if (payload.digits !== undefined && payload.digits !== "") {
+          body.set("Digits", payload.digits);
+        }
+        if (payload.speech !== undefined && payload.speech !== "") {
+          body.set("SpeechResult", payload.speech);
         }
 
         const response = await fetch(url, {
@@ -399,7 +456,31 @@
         nextAction = parsed.action || nextAction;
         fallbackRedirect = parsed.redirect || "";
         awaitingInput = Boolean(parsed.action);
+        currentGatherInput = parsed.input || "dtmf";
+        currentGatherNumDigits = parsed.numDigits || 0;
+        currentGatherFinishOnKey = parsed.finishOnKey ?? "#";
+        dtmfBuffer = "";
+        manualInputEl.value = "";
+        cancelDtmfSubmitTimer();
+        if (parsed.hangup) {
+          awaitingInput = false;
+          nextAction = appUrl("/api/twilio/menu");
+          fallbackRedirect = "";
+          callSid = "";
+          currentGatherNumDigits = 0;
+          currentGatherFinishOnKey = "#";
+          callEnded = true;
+          setStatus("Call ended.");
+          return;
+        }
+
         setStatus(awaitingInput ? "Waiting for input." : parsed.redirect ? "Ready to continue." : "Flow complete.");
+
+        if (!awaitingInput && parsed.redirect) {
+          autoTimer = setTimeout(() => {
+            postToIvr(parsed.redirect);
+          }, 250);
+        }
       }
 
       async function startCall() {
@@ -408,24 +489,111 @@
         nextAction = appUrl("/api/twilio/menu");
         fallbackRedirect = "";
         awaitingInput = false;
+        currentGatherInput = "dtmf";
+        currentGatherNumDigits = 0;
+        currentGatherFinishOnKey = "#";
+        dtmfBuffer = "";
+        manualInputEl.value = "";
+        cancelDtmfSubmitTimer();
+        callEnded = false;
         messagesEl.innerHTML = "";
         setStatus("Starting test call...");
         await postToIvr(appUrl("/api/twilio/voice"));
       }
 
-      async function sendDigits(digits) {
+      async function sendInput(value) {
         if (!callSid) {
+          if (callEnded) {
+            setStatus("Call ended. Press Start Call to begin a new call.");
+            return;
+          }
           await startCall();
         }
 
         cancelAutoTimer();
-        addMessage("user", digits || "(continue)");
+        addMessage("user", value || "(continue)");
         const target = awaitingInput ? nextAction : fallbackRedirect || nextAction;
-        await postToIvr(target, digits);
+        const expectsSpeech = currentGatherInput.includes("speech") && !currentGatherInput.includes("dtmf");
+        const payload =
+          value === ""
+            ? {}
+            : expectsSpeech
+              ? { speech: value }
+              : { digits: value };
+        await postToIvr(target, payload);
+      }
+
+      function queueDtmfDigit(digit) {
+        if (!currentGatherInput.includes("dtmf")) {
+          sendInput(digit);
+          return;
+        }
+
+        if (digit === "*" && !dtmfBuffer) {
+          sendInput(digit);
+          return;
+        }
+
+        if (currentGatherFinishOnKey && digit === currentGatherFinishOnKey) {
+          if (!dtmfBuffer) {
+            return;
+          }
+
+          const value = dtmfBuffer;
+          dtmfBuffer = "";
+          manualInputEl.value = "";
+          cancelDtmfSubmitTimer();
+          sendInput(value);
+          return;
+        }
+
+        dtmfBuffer += digit;
+        manualInputEl.value = dtmfBuffer;
+
+        if (currentGatherNumDigits > 0 && dtmfBuffer.length >= currentGatherNumDigits) {
+          const value = dtmfBuffer;
+          dtmfBuffer = "";
+          manualInputEl.value = "";
+          cancelDtmfSubmitTimer();
+          sendInput(value);
+          return;
+        }
+
+        cancelDtmfSubmitTimer();
+        if (!currentGatherNumDigits) {
+          dtmfSubmitTimer = setTimeout(() => {
+            if (!dtmfBuffer) {
+              return;
+            }
+
+            const value = dtmfBuffer;
+            dtmfBuffer = "";
+            manualInputEl.value = "";
+            sendInput(value);
+          }, 1200);
+        }
+      }
+
+      function hangUpCall() {
+        cancelAutoTimer();
+        cancelDtmfSubmitTimer();
+        callSid = "";
+        nextAction = appUrl("/api/twilio/menu");
+        fallbackRedirect = "";
+        awaitingInput = false;
+        currentGatherInput = "dtmf";
+        currentGatherNumDigits = 0;
+        currentGatherFinishOnKey = "#";
+        dtmfBuffer = "";
+        manualInputEl.value = "";
+        callEnded = true;
+        addMessage("assistant", "Call ended.");
+        setStatus("Call ended. Press Start Call to begin a new call.");
       }
 
       async function resetSession() {
         cancelAutoTimer();
+        cancelDtmfSubmitTimer();
         if (!callSid) {
           callSid = fakeCallSid();
         }
@@ -440,17 +608,55 @@
         nextAction = appUrl("/api/twilio/menu");
         fallbackRedirect = "";
         awaitingInput = false;
+        currentGatherInput = "dtmf";
+        currentGatherNumDigits = 0;
+        currentGatherFinishOnKey = "#";
+        dtmfBuffer = "";
+        manualInputEl.value = "";
+        callEnded = false;
         setStatus("Test session cleared.");
       }
 
+      async function loadSettings() {
+        try {
+          const response = await fetch(appUrl("/api/testivr/settings"), { cache: "no-store" });
+          const settings = await response.json();
+          setSubmitOrderUi(settings.submitShopifyOrder, settings.submitShopifyOrder ? "Real Shopify order submission is on." : "Draft-only mode is on.");
+        } catch (_error) {
+          setSubmitOrderUi(false, "Could not load the submit-order setting.");
+        }
+      }
+
+      async function updateSubmitOrderSetting() {
+        const enabled = submitOrderToggleEl.checked;
+        submitOrderToggleEl.disabled = true;
+        submitOrderNoteEl.textContent = "Saving...";
+
+        try {
+          const response = await fetch(appUrl("/api/testivr/settings"), {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ submitShopifyOrder: enabled ? "true" : "false" })
+          });
+          const settings = await response.json();
+          setSubmitOrderUi(settings.submitShopifyOrder, settings.submitShopifyOrder ? "Real Shopify order submission is on." : "Draft-only mode is on.");
+        } catch (_error) {
+          setSubmitOrderUi(!enabled, "Could not save the submit-order setting.");
+        } finally {
+          submitOrderToggleEl.disabled = false;
+        }
+      }
+
       document.getElementById("start").addEventListener("click", startCall);
+      document.getElementById("hangup").addEventListener("click", hangUpCall);
       document.getElementById("reset").addEventListener("click", resetSession);
-      document.getElementById("continue").addEventListener("click", () => sendDigits(""));
+      document.getElementById("continue").addEventListener("click", () => sendInput(""));
+      submitOrderToggleEl.addEventListener("change", updateSubmitOrderSetting);
       document.getElementById("send").addEventListener("click", () => {
-        const digits = manualInputEl.value.trim();
-        if (!digits) return;
+        const value = manualInputEl.value.trim();
+        if (!value) return;
         manualInputEl.value = "";
-        sendDigits(digits);
+        sendInput(value);
       });
 
       manualInputEl.addEventListener("keydown", (event) => {
@@ -461,8 +667,10 @@
       });
 
       document.querySelectorAll("[data-digit]").forEach((button) => {
-        button.addEventListener("click", () => sendDigits(button.dataset.digit || ""));
+        button.addEventListener("click", () => queueDtmfDigit(button.dataset.digit || ""));
       });
+
+      loadSettings();
     </script>
   </body>
 </html>

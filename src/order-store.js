@@ -4,8 +4,10 @@ const path = require("path");
 const dataDir = path.join(__dirname, "..", "data");
 const ordersFile = path.join(dataDir, "orders.json");
 const sessionsFile = path.join(dataDir, "sessions.json");
+const appConfigFile = path.join(dataDir, "app-config.json");
 const ORDER_BLOB_PREFIX = "ivr-orders/";
 const SESSION_BLOB_PREFIX = "ivr-sessions/";
+const APP_CONFIG_BLOB_PATH = "ivr-config/app-config.json";
 
 let cachedBlobSdk;
 
@@ -20,6 +22,10 @@ function ensureDataStore() {
 
   if (!fs.existsSync(sessionsFile)) {
     fs.writeFileSync(sessionsFile, "{}\n", "utf8");
+  }
+
+  if (!fs.existsSync(appConfigFile)) {
+    fs.writeFileSync(appConfigFile, "{}\n", "utf8");
   }
 }
 
@@ -119,6 +125,39 @@ async function deleteSession(sessionKey) {
   deleteSessionFromFile(sessionKey);
 }
 
+async function deleteSessionsByCaller(caller) {
+  const normalizedCaller = String(caller || "").trim();
+  if (!normalizedCaller) {
+    return;
+  }
+
+  if (canUseBlobStore()) {
+    await deleteSessionsByCallerInBlob(normalizedCaller);
+    return;
+  }
+
+  deleteSessionsByCallerInFile(normalizedCaller);
+}
+
+async function loadAppConfig() {
+  if (canUseBlobStore()) {
+    return loadAppConfigFromBlob();
+  }
+
+  return loadAppConfigFromFile();
+}
+
+async function saveAppConfig(config) {
+  const normalized = config && typeof config === "object" ? config : {};
+
+  if (canUseBlobStore()) {
+    await saveAppConfigToBlob(normalized);
+    return;
+  }
+
+  saveAppConfigToFile(normalized);
+}
+
 function saveOrderToFile(orderRecord) {
   ensureDataStore();
   const existing = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
@@ -143,6 +182,20 @@ function readSessionsFromFile() {
 function writeSessionsToFile(sessions) {
   ensureDataStore();
   fs.writeFileSync(sessionsFile, `${JSON.stringify(sessions, null, 2)}\n`, "utf8");
+}
+
+function loadAppConfigFromFile() {
+  try {
+    ensureDataStore();
+    return JSON.parse(fs.readFileSync(appConfigFile, "utf8"));
+  } catch (_error) {
+    return {};
+  }
+}
+
+function saveAppConfigToFile(config) {
+  ensureDataStore();
+  fs.writeFileSync(appConfigFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 function loadSessionFromFile(sessionKey) {
@@ -178,6 +231,16 @@ function findSessionByCallerInFile(caller) {
 function deleteSessionFromFile(sessionKey) {
   const sessions = readSessionsFromFile();
   delete sessions[sessionKey];
+  writeSessionsToFile(sessions);
+}
+
+function deleteSessionsByCallerInFile(caller) {
+  const sessions = readSessionsFromFile();
+  for (const [sessionKey, sessionRecord] of Object.entries(sessions)) {
+    if (sessionRecord && String(sessionRecord.caller || "").trim() === caller) {
+      delete sessions[sessionKey];
+    }
+  }
   writeSessionsToFile(sessions);
 }
 
@@ -300,12 +363,68 @@ async function deleteSessionFromBlob(sessionKey) {
   }
 }
 
+async function deleteSessionsByCallerInBlob(caller) {
+  const { list } = blobSdk();
+  let cursor;
+
+  do {
+    const page = await list({ prefix: SESSION_BLOB_PREFIX, cursor });
+    for (const blob of Array.isArray(page.blobs) ? page.blobs : []) {
+      const sessionKey = blob.pathname.replace(SESSION_BLOB_PREFIX, "").replace(/\.json$/, "");
+      const sessionRecord = await loadSessionFromBlob(sessionKey);
+      if (sessionRecord && String(sessionRecord.caller || "").trim() === caller) {
+        await deleteSessionFromBlob(sessionKey);
+      }
+    }
+
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+}
+
+async function loadAppConfigFromBlob() {
+  const { get } = blobSdk();
+
+  try {
+    const file = await get(APP_CONFIG_BLOB_PATH, { access: "private" });
+    if (!file || file.statusCode !== 200 || !file.blob?.downloadUrl) {
+      return {};
+    }
+
+    const response = await fetch(file.blob.downloadUrl, {
+      headers: {
+        Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    return JSON.parse(await response.text());
+  } catch (_error) {
+    return {};
+  }
+}
+
+async function saveAppConfigToBlob(config) {
+  const { put } = blobSdk();
+  await put(APP_CONFIG_BLOB_PATH, JSON.stringify(config, null, 2), {
+    access: "private",
+    allowOverwrite: true,
+    addRandomSuffix: false,
+    contentType: "application/json"
+  });
+}
+
 module.exports = {
   deleteSession,
+  deleteSessionsByCaller,
   ensureDataStore,
   findSessionByCaller,
+  loadAppConfig,
   loadSession,
   loadOrders,
+  saveAppConfig,
   saveSession,
   saveOrder
 };

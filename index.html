@@ -426,17 +426,17 @@
         const collarMap = {
           spread: "S",
           cutaway: "C",
-          "extra cutaway": "V",
-          button: "B",
           pointy: "P",
           chassidish: "P"
         };
         const collarCode = collarMap[item.collar] || "S";
         const fitMap = {
           classic: "C",
+          traditional: "C",
           slim: "S",
           "extra slim": "E",
-          "super slim": "X"
+          "super slim": "X",
+          husky: "H"
         };
         const fitCode = fitMap[item.fit] || "C";
         const prefix = `${categoryCode}T${collarCode}${fitCode}`;

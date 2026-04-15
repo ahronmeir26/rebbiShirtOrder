@@ -11,6 +11,7 @@
 - When running the local dev server for this repo, also run ngrok so Twilio can reach the local app.
 - Start ngrok for this repo with `/tmp/ngrok-install/ngrok http 3000` whenever starting the local dev server.
 - When the issue is clearly Vercel-only, do not treat restarting the local dev server as meaningful verification.
+- When the user asks to fix something in this repo, treat that as applying to both the live phone IVR flow and the `/testivr` page unless they say otherwise.
 - For Twilio routes on Vercel, do not assume nested paths are covered automatically; add or verify explicit Vercel route wrappers for nested endpoints like `/api/twilio/order/...` or `/api/twilio/cart/...` so production routing matches local routing.
 - When loading data from Shopify in this repo, reference the local skill at `.codex/skills/shopify-loader/SKILL.md`.
 - When new Shopify-specific implementation details are learned, add them to the Shopify loader skill or its references.
