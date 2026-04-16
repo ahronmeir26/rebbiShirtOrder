@@ -354,8 +354,10 @@ async function getSession(callSid, from) {
 
   if (!sessions.has(key)) {
     let stored = await loadSession(key);
+    const hasStoredSession = stored && typeof stored === "object";
 
-    if ((!stored || !Array.isArray(stored.cart) || stored.cart.length === 0) && String(from || "").trim()) {
+    // An empty cart is valid state. Only fall back when the primary session record is actually missing.
+    if (!hasStoredSession && String(from || "").trim()) {
       const storedByCaller = await findSessionByCaller(String(from).trim());
       if (storedByCaller) {
         stored = storedByCaller;
@@ -363,7 +365,7 @@ async function getSession(callSid, from) {
       }
     }
 
-    if ((!stored || !Array.isArray(stored.cart) || stored.cart.length === 0) && callSid && String(from || "").trim()) {
+    if (!stored && callSid && String(from || "").trim()) {
       const legacyByCall = await loadSession(callSid);
       if (legacyByCall && Array.isArray(legacyByCall.cart) && legacyByCall.cart.length) {
         stored = legacyByCall;
@@ -371,7 +373,7 @@ async function getSession(callSid, from) {
       }
     }
 
-    if ((!stored || !Array.isArray(stored.cart) || stored.cart.length === 0) && callSid && !String(from || "").trim()) {
+    if (!stored && callSid && !String(from || "").trim()) {
       const storedByCall = await loadSession(callSid);
       if (storedByCall) {
         stored = storedByCall;
