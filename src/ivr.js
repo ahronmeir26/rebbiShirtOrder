@@ -523,6 +523,31 @@ async function clearSession(callSid, from) {
   }
 }
 
+async function resetSessionState(callSid, from) {
+  const caller = String(from || "").trim();
+  const callKey = callSid ? String(callSid).trim() : "";
+
+  await clearSession(callSid, from);
+
+  const canonicalKey = caller ? `phone:${caller}` : callKey;
+  if (!canonicalKey) {
+    return;
+  }
+
+  const emptySession = sanitizeSession({
+    caller,
+    lastCallSid: callKey,
+    cart: []
+  });
+
+  sessions.set(canonicalKey, emptySession);
+  await saveSession(canonicalKey, emptySession);
+
+  if (callKey) {
+    callSidSessionKeys.set(callKey, canonicalKey);
+  }
+}
+
 async function persistSessionState(key, session) {
   const sanitized = sanitizeSession(session);
   const phoneKey = sanitized.caller ? `phone:${sanitized.caller}` : null;
@@ -1488,7 +1513,7 @@ async function handleDiscountCodeReview(req, res, baseUrl) {
 
 async function handleTestReset(req, res) {
   const form = await parseFormBody(req);
-  await clearSession(form.CallSid, form.From);
+  await resetSessionState(form.CallSid, form.From);
   json(res, 200, { ok: true });
 }
 
@@ -1534,13 +1559,14 @@ async function handleCartControl(req, res, baseUrl) {
 
     const safeIndex = Math.max(0, Math.min(index, session.cart.length - 1));
     session.cart.splice(safeIndex, 1);
-    await persistSessionState(key, session);
 
     if (!session.cart.length) {
+      await resetSessionState(form.CallSid, form.From);
       xml(res, 200, twiml([say("Item deleted. Your cart is now empty."), redirect(baseUrl, cartReturnPath(context))]));
       return;
     }
 
+    await persistSessionState(key, session);
     const nextIndex = Math.min(safeIndex, session.cart.length - 1);
     xml(
       res,
@@ -2186,7 +2212,7 @@ async function handleFinalizeOrder(req, res, baseUrl) {
 
   await saveOrder(orderRecord);
 
-  await clearSession(form.CallSid || key, form.From);
+  await resetSessionState(form.CallSid || key, form.From);
   xml(
     res,
     200,
