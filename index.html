@@ -139,6 +139,33 @@
         flex-wrap: wrap;
       }
 
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--ink);
+      }
+
+      .toggle input {
+        margin: 0;
+        min-width: 18px;
+        min-height: 18px;
+      }
+
+      .toggle-copy {
+        display: grid;
+        gap: 2px;
+      }
+
+      .toggle-note {
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+
       button {
         border: 0;
         border-radius: 999px;
@@ -352,6 +379,14 @@
         <div class="status" id="status">Loading orders…</div>
         <div class="toolbar-right">
           <button class="secondary" id="testivr-button">Test IVR</button>
+          <button class="secondary" id="logout-button" type="button">Log out</button>
+          <label class="toggle" for="submit-order-toggle">
+            <input type="checkbox" id="submit-order-toggle" />
+            <span class="toggle-copy">
+              <span>Submit orders after draft</span>
+              <span class="toggle-note" id="submit-order-note">Loading current setting...</span>
+            </span>
+          </label>
           <label class="status">
             <input type="checkbox" id="auto-refresh" checked />
             Auto refresh
@@ -371,9 +406,12 @@
       const lastRefreshEl = document.getElementById("last-refresh");
       const statusEl = document.getElementById("status");
       const testIvrButton = document.getElementById("testivr-button");
+      const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
       const autoRefresh = document.getElementById("auto-refresh");
       const brandLogo = document.getElementById("brand-logo");
+      const submitOrderToggle = document.getElementById("submit-order-toggle");
+      const submitOrderNote = document.getElementById("submit-order-note");
       let timer = null;
       const appPrefix = window.location.pathname === "/rso" || window.location.pathname.startsWith("/rso/") ? "/rso" : "";
 
@@ -410,6 +448,15 @@
           style: "currency",
           currency: "USD"
         }).format(Number(amount || 0));
+      }
+
+      function redirectToLogin() {
+        window.location.href = appUrl(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      }
+
+      function setSubmitOrderUi(enabled, note) {
+        submitOrderToggle.checked = Boolean(enabled);
+        submitOrderNote.textContent = note || (enabled ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on.");
       }
 
       function renderEmpty() {
@@ -519,6 +566,10 @@
         try {
           statusEl.textContent = "Loading orders…";
           const response = await fetch(appUrl("/api/orders"), { cache: "no-store" });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
           if (!response.ok) throw new Error(`Request failed with ${response.status}`);
           const orders = await response.json();
           orderCountEl.textContent = String(orders.length);
@@ -535,6 +586,50 @@
         }
       }
 
+      async function loadSettings() {
+        try {
+          const response = await fetch(appUrl("/api/admin/settings"), { cache: "no-store" });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+          const settings = await response.json();
+          setSubmitOrderUi(
+            settings.submitShopifyOrder,
+            settings.submitShopifyOrder ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on."
+          );
+        } catch (_error) {
+          setSubmitOrderUi(false, "Could not load the submit-order setting.");
+        }
+      }
+
+      async function updateSubmitOrderSetting() {
+        const enabled = submitOrderToggle.checked;
+        submitOrderToggle.disabled = true;
+        submitOrderNote.textContent = "Saving...";
+
+        try {
+          const response = await fetch(appUrl("/api/admin/settings"), {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ submitShopifyOrder: enabled ? "true" : "false" })
+          });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+          const settings = await response.json();
+          setSubmitOrderUi(
+            settings.submitShopifyOrder,
+            settings.submitShopifyOrder ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on."
+          );
+        } catch (_error) {
+          setSubmitOrderUi(!enabled, "Could not save the submit-order setting.");
+        } finally {
+          submitOrderToggle.disabled = false;
+        }
+      }
+
       function setAutoRefresh() {
         if (timer) clearInterval(timer);
         if (autoRefresh.checked) {
@@ -546,9 +641,14 @@
       testIvrButton.addEventListener("click", () => {
         window.location.href = appUrl("/testivr");
       });
+      logoutButton.addEventListener("click", () => {
+        window.location.href = appUrl("/logout");
+      });
       autoRefresh.addEventListener("change", setAutoRefresh);
+      submitOrderToggle.addEventListener("change", updateSubmitOrderSetting);
 
       loadOrders();
+      loadSettings();
       setAutoRefresh();
     </script>
   </body>

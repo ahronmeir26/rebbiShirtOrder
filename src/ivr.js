@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const {
   deleteSession,
   deleteSessionsByCaller,
@@ -11,6 +12,16 @@ const {
   saveOrder,
   saveSession
 } = require("./order-store");
+const {
+  appendSetCookieHeader,
+  buildAdminSessionCookie,
+  buildClearedAdminSessionCookie,
+  buildMountedPath,
+  isAdminAuthConfigured,
+  isAdminAuthenticated,
+  sanitizeNextPath,
+  verifyAdminPassword
+} = require("./admin-auth");
 const { findMatchingPreorderSku, getPreorderCache } = require("./preorder-cache");
 const { completeDraftOrder, createDraftOrder, lookupDiscountCode, toMoneyAmount } = require("./shopify-draft-orders");
 
@@ -447,6 +458,10 @@ function parseFormBody(req) {
 
     req.on("error", reject);
   });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function safeJson(value) {
@@ -937,6 +952,14 @@ function html(res, statusCode, payload) {
   res.end(payload);
 }
 
+function htmlWithHeaders(res, statusCode, headers, payload) {
+  res.writeHead(statusCode, {
+    "Content-Type": "text/html; charset=utf-8",
+    ...(headers || {})
+  });
+  res.end(payload);
+}
+
 function htmlNoCache(res, statusCode, payload) {
   res.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
@@ -952,8 +975,205 @@ function file(res, statusCode, contentType, payload) {
   res.end(payload);
 }
 
+function redirectResponse(res, location, headers = {}) {
+  res.writeHead(303, {
+    Location: location,
+    "Cache-Control": "no-store",
+    ...headers
+  });
+  res.end("");
+}
+
 function notFound(res) {
   json(res, 404, { error: "Not found" });
+}
+
+function isAdminPagePath(pathname) {
+  return pathname === "/" || pathname === "/index.html" || pathname === "/orders" || pathname === "/testivr" || pathname === "/testivr/index.html";
+}
+
+function isProtectedAdminApiPath(pathname) {
+  return (
+    pathname === "/api/orders" ||
+    pathname === "/api/admin/settings" ||
+    pathname === "/api/testivr/settings" ||
+    pathname === "/api/twilio/test/reset"
+  );
+}
+
+function isPublicAssetPath(pathname) {
+  return pathname === "/logo-aistone.png" || pathname === "/health" || pathname === "/api/health";
+}
+
+function loginPathForRequest(req) {
+  return buildMountedPath(req.url, "/login");
+}
+
+function logoutPathForRequest(req) {
+  return buildMountedPath(req.url, "/logout");
+}
+
+function nextPathForRequest(req, fallback = "/") {
+  const current = new URL(String(req.url || fallback), "http://localhost");
+  return sanitizeNextPath(`${current.pathname}${current.search}`, fallback);
+}
+
+function redirectToLogin(res, req) {
+  const loginPath = loginPathForRequest(req);
+  const nextPath = nextPathForRequest(req, "/");
+  const separator = loginPath.includes("?") ? "&" : "?";
+  redirectResponse(res, `${loginPath}${separator}next=${encodeURIComponent(nextPath)}`);
+}
+
+function unauthorizedAdminApi(res) {
+  res.writeHead(401, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  res.end(JSON.stringify({ error: "Unauthorized" }, null, 2));
+}
+
+function authMisconfiguredResponse(res, isApi) {
+  if (isApi) {
+    res.writeHead(503, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store"
+    });
+    res.end(JSON.stringify({ error: "Admin authentication is not configured." }, null, 2));
+    return;
+  }
+
+  htmlWithHeaders(
+    res,
+    503,
+    {
+      "Cache-Control": "no-store",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "same-origin"
+    },
+    renderLoginPage({ error: "Admin authentication is not configured." })
+  );
+}
+
+function shouldEnforceAdminAuth(pathname) {
+  return isAdminPagePath(pathname) || isProtectedAdminApiPath(pathname);
+}
+
+function renderLoginPage({ error = "", nextPath = "/", logout = false } = {}) {
+  const safeMessage = escapeXml(error);
+  const safeNextPath = escapeXml(sanitizeNextPath(nextPath, "/"));
+  const notice = logout ? "<p class=\"notice\">You have been signed out.</p>" : "";
+  const errorMarkup = safeMessage ? `<p class="error">${safeMessage}</p>` : "";
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Login</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f3eee7;
+        --panel: #fffdf8;
+        --ink: #1d1c18;
+        --muted: #6a6258;
+        --accent: #8a5a12;
+        --border: rgba(29, 28, 24, 0.12);
+        --error: #a11b1b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top left, rgba(138, 90, 18, 0.14), transparent 32%),
+          linear-gradient(160deg, #f6f1e9 0%, var(--bg) 55%, #ede4d8 100%);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      .card {
+        width: min(420px, 100%);
+        padding: 32px 28px;
+        border-radius: 20px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 24px 64px rgba(29, 28, 24, 0.12);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 1.9rem;
+      }
+      p {
+        margin: 0 0 18px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .notice, .error {
+        padding: 12px 14px;
+        border-radius: 12px;
+        margin-bottom: 16px;
+        font-size: 0.96rem;
+      }
+      .notice {
+        background: rgba(138, 90, 18, 0.08);
+        color: var(--ink);
+      }
+      .error {
+        background: rgba(161, 27, 27, 0.08);
+        color: var(--error);
+      }
+      label {
+        display: block;
+        margin-bottom: 10px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        padding: 14px 15px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: white;
+        font: inherit;
+        margin-bottom: 18px;
+      }
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 999px;
+        padding: 14px 18px;
+        font: inherit;
+        font-weight: 700;
+        color: white;
+        background: linear-gradient(135deg, #8a5a12 0%, #b3751d 100%);
+        cursor: pointer;
+      }
+      .footnote {
+        margin-top: 16px;
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Admin Login</h1>
+      <p>Sign in to access the order dashboard, IVR test page, and transfer tools.</p>
+      ${notice}
+      ${errorMarkup}
+      <form method="POST" action="/login" autocomplete="off">
+        <input type="hidden" name="next" value="${safeNextPath}" />
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required autofocus />
+        <button type="submit">Sign In</button>
+      </form>
+      <p class="footnote">This session uses an HttpOnly signed cookie and expires automatically.</p>
+    </main>
+  </body>
+</html>`;
 }
 
 function normalizeMainSelection(input) {
@@ -1585,6 +1805,109 @@ function goToPreviousOrderMenu(baseUrl, session) {
   clearPendingItemFromStep(item, previousStep);
   ensurePendingItemDefaults(item);
   return currentOrderMenuResponse(baseUrl, session);
+}
+
+async function handleLoginPage(req, res) {
+  if (!isAdminAuthConfigured()) {
+    authMisconfiguredResponse(res, false);
+    return;
+  }
+
+  if (isAdminAuthenticated(req)) {
+    const current = new URL(String(req.url || "/login"), "http://localhost");
+    redirectResponse(res, sanitizeNextPath(current.searchParams.get("next"), "/"));
+    return;
+  }
+
+  const current = new URL(String(req.url || "/login"), "http://localhost");
+  const nextPath = sanitizeNextPath(current.searchParams.get("next"), "/");
+  const logout = current.searchParams.get("logout") === "1";
+  htmlWithHeaders(
+    res,
+    200,
+    {
+      "Cache-Control": "no-store",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "same-origin",
+      "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'; frame-ancestors 'none'"
+    },
+    renderLoginPage({ nextPath, logout })
+  );
+}
+
+async function handleLoginSubmit(req, res) {
+  const form = await parseFormBody(req);
+  req.body = form;
+
+  if (!isAdminAuthConfigured()) {
+    authMisconfiguredResponse(res, false);
+    return;
+  }
+
+  const nextPath = sanitizeNextPath(form.next, "/");
+  const password = String(form.password || "");
+  if (!verifyAdminPassword(password)) {
+    await sleep(450);
+    htmlWithHeaders(
+      res,
+      401,
+      {
+        "Cache-Control": "no-store",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "same-origin",
+        "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'; frame-ancestors 'none'"
+      },
+      renderLoginPage({ error: "Invalid password.", nextPath })
+    );
+    return;
+  }
+
+  redirectResponse(
+    res,
+    nextPath,
+    appendSetCookieHeader({}, buildAdminSessionCookie(req))
+  );
+}
+
+async function handleLogout(req, res) {
+  const loginPath = loginPathForRequest(req);
+  const separator = loginPath.includes("?") ? "&" : "?";
+  redirectResponse(
+    res,
+    `${loginPath}${separator}logout=1`,
+    appendSetCookieHeader({}, buildClearedAdminSessionCookie(req))
+  );
+}
+
+async function authorizeRequest(req, res, pathname) {
+  if (pathname === "/login" || pathname === "/logout") {
+    return true;
+  }
+
+  if (isPublicAssetPath(pathname)) {
+    return true;
+  }
+
+  if (shouldEnforceAdminAuth(pathname)) {
+    if (!isAdminAuthConfigured()) {
+      authMisconfiguredResponse(res, pathname.startsWith("/api/"));
+      return false;
+    }
+
+    if (isAdminAuthenticated(req)) {
+      return true;
+    }
+
+    if (pathname.startsWith("/api/")) {
+      unauthorizedAdminApi(res);
+      return false;
+    }
+
+    redirectToLogin(res, req);
+    return false;
+  }
+
+  return true;
 }
 
 async function handleVoiceWebhook(req, res, baseUrl) {
@@ -2529,8 +2852,20 @@ async function routeRequest(req, res, pathname, baseUrl) {
     logTwilioDebug("route", summarizeTwilioRequest(req, pathname));
   }
 
+  if (req.method === "GET" && pathname === "/login") {
+    return handleLoginPage(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/login") {
+    return handleLoginSubmit(req, res);
+  }
+
+  if ((req.method === "GET" || req.method === "POST") && pathname === "/logout") {
+    return handleLogout(req, res);
+  }
+
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
-    html(res, 200, fs.readFileSync(dashboardFile, "utf8"));
+    htmlNoCache(res, 200, fs.readFileSync(dashboardFile, "utf8"));
     return;
   }
 
@@ -2586,11 +2921,11 @@ async function routeRequest(req, res, pathname, baseUrl) {
     return handleTestReset(req, res);
   }
 
-  if (req.method === "GET" && pathname === "/api/testivr/settings") {
+  if (req.method === "GET" && (pathname === "/api/admin/settings" || pathname === "/api/testivr/settings")) {
     return handleTestSettingsGet(req, res);
   }
 
-  if (req.method === "POST" && pathname === "/api/testivr/settings") {
+  if (req.method === "POST" && (pathname === "/api/admin/settings" || pathname === "/api/testivr/settings")) {
     return handleTestSettingsUpdate(req, res);
   }
 
@@ -2665,6 +3000,9 @@ async function handleHttpRequest(req, res, options = {}) {
   try {
     const pathname = resolvePathname(req);
     attachTwilioResponseLogging(res, pathname);
+    if (!(await authorizeRequest(req, res, pathname))) {
+      return;
+    }
     const baseUrl = buildBaseUrl(req, options.baseUrl || process.env.BASE_URL);
     await routeRequest(req, res, pathname, baseUrl);
   } catch (error) {

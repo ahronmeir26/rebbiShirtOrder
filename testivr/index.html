@@ -269,6 +269,7 @@
         <p class="meta">Fake caller: <code id="fake-number">+15555550123</code></p>
         <div class="hero-actions">
           <a class="hero-link" id="orders-link" href="/">View Orders</a>
+          <a class="hero-link" id="logout-link" href="/logout">Log out</a>
         </div>
       </section>
 
@@ -333,6 +334,7 @@
       let callEnded = false;
 
       const ordersLinkEl = document.getElementById("orders-link");
+      const logoutLinkEl = document.getElementById("logout-link");
       const messagesEl = document.getElementById("messages");
       const statusEl = document.getElementById("status");
       const manualInputEl = document.getElementById("manual-input");
@@ -344,6 +346,11 @@
       }
 
       ordersLinkEl.href = appUrl("/");
+      logoutLinkEl.href = appUrl("/logout");
+
+      function redirectToLogin() {
+        window.location.href = appUrl(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      }
 
       function fakeCallSid() {
         return `CATEST${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -449,6 +456,10 @@
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body
         });
+        if (response.status === 401 || response.status === 403) {
+          redirectToLogin();
+          return;
+        }
 
         const xmlText = await response.text();
         const parsed = parseTwiml(xmlText);
@@ -598,11 +609,15 @@
           callSid = fakeCallSid();
         }
 
-        await fetch(appUrl("/api/twilio/test/reset"), {
+        const response = await fetch(appUrl("/api/twilio/test/reset"), {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({ CallSid: callSid, From: TEST_FROM })
         });
+        if (response.status === 401) {
+          redirectToLogin();
+          return;
+        }
 
         messagesEl.innerHTML = "";
         nextAction = appUrl("/api/twilio/menu");
@@ -619,9 +634,16 @@
 
       async function loadSettings() {
         try {
-          const response = await fetch(appUrl("/api/testivr/settings"), { cache: "no-store" });
+          const response = await fetch(appUrl("/api/admin/settings"), { cache: "no-store" });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
           const settings = await response.json();
-          setSubmitOrderUi(settings.submitShopifyOrder, settings.submitShopifyOrder ? "Real Shopify order submission is on." : "Draft-only mode is on.");
+          setSubmitOrderUi(
+            settings.submitShopifyOrder,
+            settings.submitShopifyOrder ? "Real Shopify order submission is on for live and test IVR." : "Draft-only mode is on."
+          );
         } catch (_error) {
           setSubmitOrderUi(false, "Could not load the submit-order setting.");
         }
@@ -633,13 +655,20 @@
         submitOrderNoteEl.textContent = "Saving...";
 
         try {
-          const response = await fetch(appUrl("/api/testivr/settings"), {
+          const response = await fetch(appUrl("/api/admin/settings"), {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({ submitShopifyOrder: enabled ? "true" : "false" })
           });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
           const settings = await response.json();
-          setSubmitOrderUi(settings.submitShopifyOrder, settings.submitShopifyOrder ? "Real Shopify order submission is on." : "Draft-only mode is on.");
+          setSubmitOrderUi(
+            settings.submitShopifyOrder,
+            settings.submitShopifyOrder ? "Real Shopify order submission is on for live and test IVR." : "Draft-only mode is on."
+          );
         } catch (_error) {
           setSubmitOrderUi(!enabled, "Could not save the submit-order setting.");
         } finally {

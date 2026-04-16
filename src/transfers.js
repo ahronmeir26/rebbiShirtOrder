@@ -1,5 +1,11 @@
 const fs = require("fs");
 const path = require("path");
+const {
+  buildMountedPath,
+  isAdminAuthConfigured,
+  isAdminAuthenticated,
+  sanitizeNextPath
+} = require("./admin-auth");
 
 const transfersPageFile = path.join(__dirname, "..", "transfers", "index.html");
 let shopifyTokenCache = null;
@@ -17,6 +23,16 @@ function html(res, statusCode, payload) {
   res.end(payload);
 }
 
+function htmlNoCache(res, statusCode, payload) {
+  res.writeHead(statusCode, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0"
+  });
+  res.end(payload);
+}
+
 function normalizeMountedPath(pathname) {
   for (const prefix of ROUTE_PREFIXES) {
     if (pathname === prefix) {
@@ -29,6 +45,12 @@ function normalizeMountedPath(pathname) {
   }
 
   return pathname;
+}
+
+function loginRedirectPath(req) {
+  const current = new URL(String(req.url || "/transfers"), "http://localhost");
+  const loginPath = buildMountedPath(req.url, "/login");
+  return `${loginPath}?next=${encodeURIComponent(sanitizeNextPath(`${current.pathname}${current.search}`, "/transfers"))}`;
 }
 
 function shopifyConfig() {
@@ -433,8 +455,30 @@ async function handleTransfersRequest(req, res) {
   try {
     const pathname = normalizeMountedPath(new URL(req.url, "http://localhost").pathname);
 
+    if (pathname === "/transfers" || pathname === "/transfers/" || pathname === "/api/transfers") {
+      if (!isAdminAuthConfigured()) {
+        json(res, 503, {
+          error: "Admin authentication is not configured."
+        });
+        return;
+      }
+
+      if (!isAdminAuthenticated(req)) {
+        if (pathname === "/api/transfers") {
+          json(res, 401, { error: "Unauthorized" });
+        } else {
+          res.writeHead(303, {
+            Location: loginRedirectPath(req),
+            "Cache-Control": "no-store"
+          });
+          res.end("");
+        }
+        return;
+      }
+    }
+
     if (req.method === "GET" && (pathname === "/transfers" || pathname === "/transfers/")) {
-      html(res, 200, fs.readFileSync(transfersPageFile, "utf8"));
+      htmlNoCache(res, 200, fs.readFileSync(transfersPageFile, "utf8"));
       return;
     }
 

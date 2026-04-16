@@ -2,6 +2,22 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/login",
+      "destination": "/api/login"
+    },
+    {
+      "source": "/logout",
+      "destination": "/api/logout"
+    },
+    {
+      "source": "/rso/login",
+      "destination": "/api/login"
+    },
+    {
+      "source": "/rso/logout",
+      "destination": "/api/logout"
+    },
+    {
       "source": "/testivr",
       "destination": "/testivr/index.html"
     },

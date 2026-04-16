@@ -463,8 +463,9 @@
         </div>
       </div>
 
-        <div class="top-actions">
-        <button class="ghost-button" type="button">Orders</button>
+      <div class="top-actions">
+        <button class="ghost-button" id="orders-link" type="button">Orders</button>
+        <button class="ghost-button" id="logout-link" type="button">Log out</button>
         <button class="ghost-button primary" id="refresh" type="button">Refresh</button>
       </div>
     </header>
@@ -498,6 +499,8 @@
 
     <script>
       const ordersEl = document.getElementById("orders");
+      const ordersLinkButton = document.getElementById("orders-link");
+      const logoutLinkButton = document.getElementById("logout-link");
       const refreshButton = document.getElementById("refresh");
       const orderCountLabelEl = document.getElementById("order-count-label");
       const lastRefreshEl = document.getElementById("last-refresh");
@@ -513,6 +516,10 @@
 
       function appUrl(path) {
         return `${appPrefix}${path}`;
+      }
+
+      function redirectToLogin() {
+        window.location.href = appUrl(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       }
 
       function escapeHtml(value) {
@@ -722,6 +729,10 @@
       async function loadTransfers() {
         try {
           const response = await fetch(appUrl("/api/transfers"), { cache: "no-store" });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
           const payload = await response.json();
           renderOrders(payload);
         } catch (error) {
@@ -751,6 +762,12 @@
       });
 
       refreshButton.addEventListener("click", loadTransfers);
+      ordersLinkButton.addEventListener("click", () => {
+        window.location.href = appUrl("/");
+      });
+      logoutLinkButton.addEventListener("click", () => {
+        window.location.href = appUrl("/logout");
+      });
       loadTransfers();
     </script>
   </body>
