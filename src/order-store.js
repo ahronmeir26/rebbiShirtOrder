@@ -161,7 +161,15 @@ async function saveAppConfig(config) {
 function saveOrderToFile(orderRecord) {
   ensureDataStore();
   const existing = JSON.parse(fs.readFileSync(ordersFile, "utf8"));
-  existing.push(orderRecord);
+  const orderId = String(orderRecord?.id || "").trim();
+  const existingIndex = orderId ? existing.findIndex((entry) => String(entry?.id || "").trim() === orderId) : -1;
+
+  if (existingIndex >= 0) {
+    existing[existingIndex] = orderRecord;
+  } else {
+    existing.push(orderRecord);
+  }
+
   fs.writeFileSync(ordersFile, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
 }
 
@@ -253,6 +261,7 @@ async function saveOrderToBlob(orderRecord) {
   const { put } = blobSdk();
   await put(blobPathnameForOrder(orderRecord), JSON.stringify(orderRecord, null, 2), {
     access: "private",
+    allowOverwrite: true,
     addRandomSuffix: false,
     contentType: "application/json"
   });
