@@ -185,6 +185,14 @@ Current implementation notes:
   - mapping prefix position 2 `J -> T`
   - mapping middle token `SP -> DP`
   - sorting the middle SKU segments before comparison
+- Live Shopify verification on April 15, 2026 confirmed that boys and short-sleeve preorder shirts are real catalog options, not dead IVR branches:
+  - boys preorder variants: `462`
+  - boys sizes: `4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22`
+  - boys short-sleeve variants: `156`
+  - boys standard preorder variants are cutaway and without pocket
+  - boys chassidish preorder variants are pointy and with pocket
+  - boys SKU shapes use a separate `SP` middle token with a size-only final segment, for example `BTPC-ROL-SS-PKT-SP-4`
+  - mens short-sleeve preorder variants also exist, so do not prune short sleeve from the IVR
 
 Live verification on April 14, 2026:
 

@@ -9,6 +9,8 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 let shopifyTokenCache = null;
 let blobSdkCache;
+let memoryCache = null;
+let refreshPromise = null;
 
 function ensureDataStore() {
   if (!fs.existsSync(dataDir)) {
@@ -119,6 +121,11 @@ function buildLookup(cache) {
     byExactSku,
     byNormalizedSku
   };
+}
+
+function rememberCache(cache) {
+  memoryCache = buildLookup(cache);
+  return memoryCache;
 }
 
 function isFresh(cache) {
@@ -362,21 +369,31 @@ async function refreshPreorderCache() {
   };
 
   await saveCachedPreorderData(cache);
-  return buildLookup(cache);
+  return rememberCache(cache);
 }
 
 async function getPreorderCache() {
+  if (memoryCache && isFresh(memoryCache) && hasRequiredEntryFields(memoryCache)) {
+    return memoryCache;
+  }
+
   const cached = await loadCachedPreorderData();
 
   if (cached && isFresh(cached) && hasRequiredEntryFields(cached)) {
-    return buildLookup(cached);
+    return rememberCache(cached);
   }
 
   try {
-    return await refreshPreorderCache();
+    if (!refreshPromise) {
+      refreshPromise = refreshPreorderCache().finally(() => {
+        refreshPromise = null;
+      });
+    }
+
+    return await refreshPromise;
   } catch (error) {
     if (cached) {
-      return buildLookup(cached);
+      return rememberCache(cached);
     }
 
     throw error;

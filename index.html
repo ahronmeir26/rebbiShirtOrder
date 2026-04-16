@@ -422,6 +422,11 @@
       }
 
       function buildSku(item) {
+        const rawStyle = String(item.style || "").trim().toLowerCase();
+        const style = rawStyle === "khoss seedish" ? "chassidish" : rawStyle;
+        const rawPocket = String(item.pocket || "").trim().toLowerCase();
+        const rawCuff = String(item.cuff || "").trim().toLowerCase();
+        const rawSleeve = String(item.sleeve || "").trim().toLowerCase();
         const categoryCode = item.category === "mens" ? "M" : "B";
         const collarMap = {
           spread: "S",
@@ -442,17 +447,20 @@
         const prefix = `${categoryCode}T${collarCode}${fitCode}`;
         const parts = ["DP"];
 
-        if (item.style === "chassidish") parts.push("ROL");
-        if (item.cuff === "french cuff") parts.push("FC");
-        if (item.pocket === "with pocket") parts.push("PKT");
-        if (item.sleeve === "short sleeve") parts.push("SS");
+        if (style === "chassidish") parts.push("ROL");
+        if (rawCuff === "french cuff") parts.push("FC");
+        if (rawPocket === "with pocket") parts.push("PKT");
+        if (rawSleeve === "short sleeve") parts.push("SS");
 
-        const isHalf = String(item.size).includes(".5");
-        const whole = String(item.size).replace(".5", "");
+        const sizeText = String(item.size || "");
+        const isHalf = sizeText.includes(".5");
+        const whole = sizeText.replace(".5", "");
         const sizeSegment =
-          item.sleeve === "short sleeve"
-            ? `${whole}${isHalf ? "H" : ""}`
-            : `${whole}${isHalf ? "H" : ""}${item.sleeve}`;
+          item.category === "boys"
+            ? whole
+            : rawSleeve === "short sleeve"
+              ? `${whole}${isHalf ? "H" : ""}`
+              : `${whole}${isHalf ? "H" : ""}${item.sleeve}`;
 
         parts.push(sizeSegment);
         return [prefix, ...parts].join("-");

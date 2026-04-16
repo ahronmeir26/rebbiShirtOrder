@@ -43,6 +43,12 @@ function blobSdk() {
   return cachedBlobSdk;
 }
 
+function writeTextFileAtomically(filePath, contents) {
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, contents, "utf8");
+  fs.renameSync(tempPath, filePath);
+}
+
 function canUseBlobStore() {
   return Boolean(String(process.env.BLOB_READ_WRITE_TOKEN || "").trim() && blobSdk());
 }
@@ -170,7 +176,7 @@ function saveOrderToFile(orderRecord) {
     existing.push(orderRecord);
   }
 
-  fs.writeFileSync(ordersFile, `${JSON.stringify(existing, null, 2)}\n`, "utf8");
+  writeTextFileAtomically(ordersFile, `${JSON.stringify(existing, null, 2)}\n`);
 }
 
 function loadOrdersFromFile() {
@@ -189,7 +195,7 @@ function readSessionsFromFile() {
 
 function writeSessionsToFile(sessions) {
   ensureDataStore();
-  fs.writeFileSync(sessionsFile, `${JSON.stringify(sessions, null, 2)}\n`, "utf8");
+  writeTextFileAtomically(sessionsFile, `${JSON.stringify(sessions, null, 2)}\n`);
 }
 
 function loadAppConfigFromFile() {
@@ -203,7 +209,7 @@ function loadAppConfigFromFile() {
 
 function saveAppConfigToFile(config) {
   ensureDataStore();
-  fs.writeFileSync(appConfigFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  writeTextFileAtomically(appConfigFile, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 function loadSessionFromFile(sessionKey) {

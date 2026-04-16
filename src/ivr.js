@@ -11,7 +11,7 @@ const {
   saveOrder,
   saveSession
 } = require("./order-store");
-const { findMatchingPreorderSku } = require("./preorder-cache");
+const { findMatchingPreorderSku, getPreorderCache } = require("./preorder-cache");
 const { completeDraftOrder, createDraftOrder, lookupDiscountCode, toMoneyAmount } = require("./shopify-draft-orders");
 
 const dashboardFile = path.join(__dirname, "..", "index.html");
@@ -42,7 +42,7 @@ const collars = {
   2: { id: "cutaway", name: "cutaway", skuCode: "C" }
 };
 
-const sizes = {
+const mensSizes = {
   1: { id: "14", name: "14" },
   2: { id: "14.5", name: "14 and a half" },
   3: { id: "15", name: "15" },
@@ -58,7 +58,23 @@ const sizes = {
   13: { id: "20", name: "20" }
 };
 
-const sleeves = {
+const boysSizes = {
+  4: { id: "4", name: "4" },
+  5: { id: "5", name: "5" },
+  6: { id: "6", name: "6" },
+  7: { id: "7", name: "7" },
+  8: { id: "8", name: "8" },
+  9: { id: "9", name: "9" },
+  10: { id: "10", name: "10" },
+  12: { id: "12", name: "12" },
+  14: { id: "14", name: "14" },
+  16: { id: "16", name: "16" },
+  18: { id: "18", name: "18" },
+  20: { id: "20", name: "20" },
+  22: { id: "22", name: "22" }
+};
+
+const mensSleeves = {
   30: { id: "30", name: "30" },
   31: { id: "31", name: "31" },
   32: { id: "32", name: "32" },
@@ -68,6 +84,11 @@ const sleeves = {
   36: { id: "36", name: "36" },
   37: { id: "37", name: "37" },
   0: { id: "short-sleeve", name: "short sleeve" }
+};
+
+const boysSleeves = {
+  1: { id: "long-sleeve", name: "long sleeve" },
+  2: { id: "short-sleeve", name: "short sleeve" }
 };
 
 const fits = {
@@ -92,6 +113,192 @@ const cuffs = {
 const sessions = new Map();
 const callSidSessionKeys = new Map();
 const CHASSIDISH_COLLAR = { id: "pointy", name: "pointy", skuCode: "P" };
+const BOYS_STANDARD_COLLAR = { id: "cutaway", name: "cutaway", skuCode: "C" };
+const SHORT_SLEEVE_CUFF = { id: "short-sleeve", name: "short sleeve" };
+
+function cloneOption(option) {
+  return option && typeof option === "object" ? { ...option } : option;
+}
+
+function rawOptionValue(value) {
+  if (value && typeof value === "object") {
+    return value.id || value.name || "";
+  }
+
+  return value;
+}
+
+function normalizeOptionKey(value) {
+  return String(rawOptionValue(value) || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+function categoryId(value) {
+  const key = normalizeOptionKey(value);
+  if (key === "men") {
+    return "mens";
+  }
+  if (key === "boy") {
+    return "boys";
+  }
+  return key;
+}
+
+function styleId(value) {
+  const key = normalizeOptionKey(value);
+  if (["khoss-seedish", "chassidish", "chossidish", "chasidish"].includes(key)) {
+    return "chassidish";
+  }
+  return key;
+}
+
+function collarId(value) {
+  const key = normalizeOptionKey(value);
+  if (key === "standard") {
+    return "spread";
+  }
+  return key;
+}
+
+function fitId(value) {
+  return normalizeOptionKey(value).replaceAll("-", " ");
+}
+
+function pocketId(value) {
+  const key = normalizeOptionKey(value);
+  if (key === "yes" || key === "with-pocket") {
+    return "with-pocket";
+  }
+  if (key === "no" || key === "without-pocket") {
+    return "without-pocket";
+  }
+  return key;
+}
+
+function cuffId(value) {
+  const key = normalizeOptionKey(value);
+  if (key === "button" || key === "button-cuff") {
+    return "button";
+  }
+  if (key === "french" || key === "french-cuff") {
+    return "french";
+  }
+  if (key === "short-sleeve" || key === "short-sleeve-cuff") {
+    return "short-sleeve";
+  }
+  return key;
+}
+
+function sleeveId(value) {
+  const key = normalizeOptionKey(value);
+  if (key === "short" || key === "short-sleeve") {
+    return "short-sleeve";
+  }
+  if (key === "long" || key === "long-sleeve") {
+    return "long-sleeve";
+  }
+  return key;
+}
+
+function sizeId(value) {
+  return String(rawOptionValue(value) || "").trim();
+}
+
+function isBoysItem(item) {
+  return categoryId(item?.category) === "boys";
+}
+
+function isChassidishItem(item) {
+  return styleId(item?.style) === "chassidish";
+}
+
+function isShortSleeveItem(item) {
+  return sleeveId(item?.sleeve) === "short-sleeve";
+}
+
+function getSizeCatalog(item) {
+  return isBoysItem(item) ? boysSizes : mensSizes;
+}
+
+function getSleeveCatalog(item) {
+  return isBoysItem(item) ? boysSleeves : mensSleeves;
+}
+
+function requiresCollarSelection(item) {
+  return Boolean(item?.style) && !isBoysItem(item) && !isChassidishItem(item);
+}
+
+function requiresPocketSelection(item) {
+  return Boolean(item?.fit) && !isBoysItem(item);
+}
+
+function requiresCuffSelection(item) {
+  if (!item?.fit || isShortSleeveItem(item)) {
+    return false;
+  }
+
+  return !(isBoysItem(item) && isChassidishItem(item));
+}
+
+function orderSelectionSteps(item) {
+  const steps = ["category"];
+
+  if (!item?.category) {
+    return steps;
+  }
+
+  steps.push("style");
+  if (!item.style) {
+    return steps;
+  }
+
+  if (requiresCollarSelection(item)) {
+    steps.push("collar");
+  }
+
+  steps.push("size");
+  if (!item.size) {
+    return steps;
+  }
+
+  steps.push("sleeve");
+  if (!item.sleeve) {
+    return steps;
+  }
+
+  steps.push("fit");
+  if (!item.fit) {
+    return steps;
+  }
+
+  if (requiresPocketSelection(item)) {
+    steps.push("pocket");
+  }
+
+  if (requiresCuffSelection(item)) {
+    steps.push("cuff");
+  }
+
+  return steps;
+}
+
+function isOrderStepComplete(item, step) {
+  return Boolean(item?.[step]);
+}
+
+function clearPendingItemFromStep(item, step) {
+  const steps = ["category", "style", "collar", "size", "sleeve", "fit", "pocket", "cuff"];
+  const index = steps.indexOf(step);
+  if (index === -1) {
+    return;
+  }
+
+  for (const field of steps.slice(index)) {
+    delete item[field];
+  }
+}
 
 function sanitizeSession(session) {
   const source = session && typeof session === "object" ? session : {};
@@ -499,12 +706,25 @@ function pendingItemFromRequest(req, session) {
 }
 
 function ensurePendingItemDefaults(item) {
-  if (!item || !item.style) {
+  if (!item || !item.style || !item.category) {
     return item;
   }
 
-  if (item.style.id === "chassidish" || item.style.name === "chassidish") {
-    item.collar = { ...CHASSIDISH_COLLAR };
+  if (isBoysItem(item)) {
+    item.collar = cloneOption(isChassidishItem(item) ? CHASSIDISH_COLLAR : BOYS_STANDARD_COLLAR);
+    item.pocket = cloneOption(isChassidishItem(item) ? pockets[1] : pockets[2]);
+  } else if (isChassidishItem(item)) {
+    item.collar = cloneOption(CHASSIDISH_COLLAR);
+  } else if (item.collar && collarId(item.collar) === "spread") {
+    item.collar = cloneOption(collars[1]);
+  }
+
+  if (isShortSleeveItem(item)) {
+    item.cuff = cloneOption(SHORT_SLEEVE_CUFF);
+  } else if (item.sleeve && isBoysItem(item) && isChassidishItem(item)) {
+    item.cuff = cloneOption(cuffs[1]);
+  } else if (item.cuff && cuffId(item.cuff) === "short-sleeve") {
+    delete item.cuff;
   }
 
   return item;
@@ -593,7 +813,7 @@ async function persistSessionState(key, session) {
 }
 
 function skuCategoryCode(category) {
-  return category === "mens" ? "M" : "B";
+  return categoryId(category) === "mens" ? "M" : "B";
 }
 
 function skuCollarCode(collar) {
@@ -602,7 +822,7 @@ function skuCollarCode(collar) {
     cutaway: "C",
     pointy: "P"
   };
-  return mapping[collar] || "S";
+  return mapping[collarId(collar)] || "S";
 }
 
 function skuFitCode(fit) {
@@ -614,38 +834,42 @@ function skuFitCode(fit) {
     "super slim": "X",
     husky: "H"
   };
-  return mapping[fit] || "C";
+  return mapping[fitId(fit)] || "C";
 }
 
-function skuSizeSegment(size, sleeve) {
+function skuSizeSegment(size, sleeve, category) {
+  if (categoryId(category) === "boys") {
+    return sizeId(size);
+  }
+
   const isHalf = String(size).includes(".5");
   const whole = String(size).replace(".5", "");
 
-  if (sleeve === "short sleeve") {
+  if (sleeveId(sleeve) === "short-sleeve") {
     return `${whole}${isHalf ? "H" : ""}`;
   }
 
-  return `${whole}${isHalf ? "H" : ""}${sleeve}`;
+  return `${whole}${isHalf ? "H" : ""}${String(rawOptionValue(sleeve) || "").trim()}`;
 }
 
 function buildSku(item) {
   const prefix = `${skuCategoryCode(item.category)}T${skuCollarCode(item.collar)}${skuFitCode(item.fit)}`;
   const segments = ["DP"];
 
-  if (item.style === "chassidish") {
+  if (isChassidishItem(item)) {
     segments.push("ROL");
   }
-  if (item.cuff === "french cuff") {
+  if (cuffId(item.cuff) === "french") {
     segments.push("FC");
   }
-  if (item.pocket === "with pocket") {
+  if (pocketId(item.pocket) === "with-pocket") {
     segments.push("PKT");
   }
-  if (item.sleeve === "short sleeve") {
+  if (isShortSleeveItem(item)) {
     segments.push("SS");
   }
 
-  segments.push(skuSizeSegment(item.size, item.sleeve));
+  segments.push(skuSizeSegment(item.size, item.sleeve, item.category));
   return [prefix, ...segments].join("-");
 }
 
@@ -937,6 +1161,22 @@ function styleMenuResponse(baseUrl, pendingItem) {
 }
 
 function sizeMenuResponse(baseUrl, pendingItem) {
+  if (isBoysItem(pendingItem)) {
+    return twiml([
+      gather(baseUrl, {
+        action: withPendingState("/api/twilio/order/size", pendingItem),
+        finishOnKey: "#",
+        timeout: 3,
+        input: "dtmf",
+        hints: "4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22",
+        prompt:
+          "Enter the boys size, then press pound. Available sizes are 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, and 22. Press star to go back."
+      }),
+      say("We did not receive a size."),
+      redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
+    ]);
+  }
+
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/size", pendingItem),
@@ -967,6 +1207,20 @@ function collarMenuResponse(baseUrl, pendingItem) {
 }
 
 function sleeveMenuResponse(baseUrl, sizeName, pendingItem) {
+  if (isBoysItem(pendingItem)) {
+    return twiml([
+      gather(baseUrl, {
+        action: withPendingState("/api/twilio/order/sleeve", pendingItem),
+        input: "dtmf",
+        numDigits: 1,
+        hints: "long sleeve, short sleeve",
+        prompt: `You selected size ${sizeName}. Press 1 for long sleeve. Press 2 for short sleeve. Press star to go back.`
+      }),
+      say("We did not receive a sleeve selection."),
+      redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
+    ]);
+  }
+
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/sleeve", pendingItem),
@@ -981,7 +1235,7 @@ function sleeveMenuResponse(baseUrl, sizeName, pendingItem) {
 }
 
 function availableFitsForItem(pendingItem) {
-  if (pendingItem?.category?.name === "boys") {
+  if (isBoysItem(pendingItem)) {
     return {
       1: fits[1],
       2: fits[2],
@@ -1001,7 +1255,7 @@ function availableFitsForItem(pendingItem) {
 }
 
 function fitMenuResponse(baseUrl, sleeveName, pendingItem) {
-  const isBoys = pendingItem?.category?.name === "boys";
+  const isBoys = isBoysItem(pendingItem);
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/fit", pendingItem),
@@ -1032,7 +1286,7 @@ function pocketMenuResponse(baseUrl, pendingItem) {
 }
 
 function cuffMenuResponse(baseUrl, sleeveName, pendingItem) {
-  if (sleeveName === "short sleeve") {
+  if (sleeveId(sleeveName) === "short-sleeve") {
     return quantityMenuResponse(baseUrl, describePendingItem(pendingItem), pendingItem);
   }
 
@@ -1220,7 +1474,7 @@ function invalidSelectionResponse(baseUrl, message, fallbackPath) {
   return twiml([say(message), redirect(baseUrl, fallbackPath)]);
 }
 
-function normalizeSizeInput(input) {
+function normalizeSizeInput(input, pendingItem) {
   const text = String(input || "").trim().toLowerCase();
   const digitWordMap = {
     zero: "0",
@@ -1243,6 +1497,11 @@ function normalizeSizeInput(input) {
     .replace(/\bpoint five\b/g, ".5")
     .replace(/\s+/g, "");
   const compact = normalizedWords.replace(/[^\d.]/g, "");
+
+  if (isBoysItem(pendingItem)) {
+    return Object.prototype.hasOwnProperty.call(boysSizes, compact) ? compact : "";
+  }
+
   const mapping = {
     "14": "14",
     "145": "14.5",
@@ -1271,39 +1530,35 @@ function describePendingItem(item) {
   return `a ${item.category.name} ${item.style.name} ${item.collar.name} twill shirt, size ${item.size.name}, sleeve ${item.sleeve.name}, ${item.fit.name}, ${item.pocket.name}, ${item.cuff.name}`;
 }
 
+function orderMenuResponseForStep(step, baseUrl, item) {
+  switch (step) {
+    case "category":
+      return categoryMenuResponse(baseUrl);
+    case "style":
+      return styleMenuResponse(baseUrl, item);
+    case "collar":
+      return collarMenuResponse(baseUrl, item);
+    case "size":
+      return sizeMenuResponse(baseUrl, item);
+    case "sleeve":
+      return sleeveMenuResponse(baseUrl, item.size.name, item);
+    case "fit":
+      return fitMenuResponse(baseUrl, item.sleeve.name, item);
+    case "pocket":
+      return pocketMenuResponse(baseUrl, item);
+    case "cuff":
+      return cuffMenuResponse(baseUrl, item.sleeve.name, item);
+    default:
+      return categoryMenuResponse(baseUrl);
+  }
+}
+
 function currentOrderMenuResponse(baseUrl, session) {
   const item = ensurePendingItemDefaults(session.pendingItem || {});
+  const nextStep = orderSelectionSteps(item).find((step) => !isOrderStepComplete(item, step));
 
-  if (!item.category) {
-    return categoryMenuResponse(baseUrl);
-  }
-
-  if (!item.style) {
-    return styleMenuResponse(baseUrl, item);
-  }
-
-  if (!item.collar) {
-    return collarMenuResponse(baseUrl, item);
-  }
-
-  if (!item.size) {
-    return sizeMenuResponse(baseUrl, item);
-  }
-
-  if (!item.sleeve) {
-    return sleeveMenuResponse(baseUrl, item.size.name, item);
-  }
-
-  if (!item.fit) {
-    return fitMenuResponse(baseUrl, item.sleeve.name, item);
-  }
-
-  if (!item.pocket) {
-    return pocketMenuResponse(baseUrl, item);
-  }
-
-  if (!item.cuff && item.sleeve.id !== "short-sleeve") {
-    return cuffMenuResponse(baseUrl, item.sleeve.name, item);
+  if (nextStep) {
+    return orderMenuResponseForStep(nextStep, baseUrl, item);
   }
 
   if (item.cuff) {
@@ -1319,54 +1574,17 @@ function goToPreviousOrderMenu(baseUrl, session) {
   }
 
   const item = ensurePendingItemDefaults(session.pendingItem);
+  const completedSteps = orderSelectionSteps(item).filter((step) => step !== "category" && isOrderStepComplete(item, step));
+  const previousStep = completedSteps[completedSteps.length - 1];
 
-  if (item.cuff) {
-    delete item.cuff;
-    if (item.sleeve && item.sleeve.id === "short-sleeve") {
-      return pocketMenuResponse(baseUrl, item);
-    }
-    return cuffMenuResponse(baseUrl, item.sleeve.name, item);
-  }
-
-  if (item.pocket) {
-    delete item.pocket;
-    return pocketMenuResponse(baseUrl, item);
-  }
-
-  if (item.fit) {
-    delete item.fit;
-    return fitMenuResponse(baseUrl, item.sleeve.name, item);
-  }
-
-  if (item.sleeve) {
-    delete item.sleeve;
-    return sleeveMenuResponse(baseUrl, item.size.name, item);
-  }
-
-  if (item.collar) {
-    delete item.collar;
-    if (item.style && item.style.id === "chassidish") {
-      return styleMenuResponse(baseUrl, item);
-    }
-    return collarMenuResponse(baseUrl, item);
-  }
-
-  if (item.size) {
-    delete item.size;
-    return sizeMenuResponse(baseUrl, item);
-  }
-
-  if (item.style) {
-    delete item.style;
-    return styleMenuResponse(baseUrl, item);
-  }
-
-  if (item.category) {
+  if (!previousStep) {
     delete session.pendingItem;
     return categoryMenuResponse(baseUrl);
   }
 
-  return categoryMenuResponse(baseUrl);
+  clearPendingItemFromStep(item, previousStep);
+  ensurePendingItemDefaults(item);
+  return currentOrderMenuResponse(baseUrl, session);
 }
 
 async function handleVoiceWebhook(req, res, baseUrl) {
@@ -1381,6 +1599,7 @@ async function handleMainMenu(req, res, baseUrl) {
   const selection = normalizeMainSelection(form.Digits || form.SpeechResult);
 
   if (selection === "1") {
+    await warmPreorderCacheForOrderFlow();
     xml(res, 200, categoryMenuResponse(baseUrl));
     return;
   }
@@ -1423,6 +1642,7 @@ async function handleMainMenu(req, res, baseUrl) {
 }
 
 async function handleOrderStart(_req, res, baseUrl) {
+  await warmPreorderCacheForOrderFlow();
   xml(res, 200, categoryMenuResponse(baseUrl));
 }
 
@@ -1629,12 +1849,27 @@ async function handlePreviousOrderMenu(req, res, baseUrl) {
   const { key, session } = await getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
   ensurePendingItemDefaults(session.pendingItem);
+  const response = goToPreviousOrderMenu(baseUrl, session);
   await persistSessionState(key, session);
-  xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+  xml(res, 200, response);
 }
 
 function wantsPreviousMenu(form) {
   return String(form.Digits || "").trim() === "*";
+}
+
+async function respondWithPreviousOrderMenu(res, baseUrl, key, session) {
+  const response = goToPreviousOrderMenu(baseUrl, session);
+  await persistSessionState(key, session);
+  xml(res, 200, response);
+}
+
+async function warmPreorderCacheForOrderFlow() {
+  try {
+    await getPreorderCache();
+  } catch (_error) {
+    // Preorder availability is checked again before quantity and finalize.
+  }
 }
 
 async function restartOrderFlow(req, res, baseUrl) {
@@ -1642,6 +1877,7 @@ async function restartOrderFlow(req, res, baseUrl) {
   const { key, session } = await getSession(form.CallSid, form.From);
   delete session.pendingItem;
   await persistSessionState(key, session);
+  await warmPreorderCacheForOrderFlow();
   xml(res, 200, categoryMenuResponse(baseUrl));
 }
 
@@ -1675,7 +1911,7 @@ async function handleStyleSelection(req, res, baseUrl) {
   pendingItemFromRequest(req, session);
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
@@ -1692,17 +1928,16 @@ async function handleStyleSelection(req, res, baseUrl) {
     return;
   }
 
+  clearPendingItemFromStep(session.pendingItem, "style");
   session.pendingItem.style = style;
+  ensurePendingItemDefaults(session.pendingItem);
+  await persistSessionState(key, session);
 
-  if (style.id === "chassidish") {
-    session.pendingItem.collar = { ...CHASSIDISH_COLLAR };
-    await persistSessionState(key, session);
+  if (session.pendingItem.collar) {
     xml(res, 200, sizeMenuResponse(baseUrl, session.pendingItem));
     return;
   }
 
-  delete session.pendingItem.collar;
-  await persistSessionState(key, session);
   xml(res, 200, collarMenuResponse(baseUrl, session.pendingItem));
 }
 
@@ -1713,7 +1948,7 @@ async function handleCollarSelection(req, res, baseUrl) {
   ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
@@ -1736,7 +1971,9 @@ async function handleCollarSelection(req, res, baseUrl) {
     return;
   }
 
+  clearPendingItemFromStep(session.pendingItem, "collar");
   session.pendingItem.collar = collar;
+  ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
   xml(res, 200, sizeMenuResponse(baseUrl, session.pendingItem));
 }
@@ -1748,13 +1985,13 @@ async function handleSizeSelection(req, res, baseUrl) {
   ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
   const rawInput = String(form.Digits || form.SpeechResult || "").trim();
-  const sizeName = normalizeSizeInput(rawInput);
-  const size = Object.values(sizes).find((entry) => entry.id === sizeName);
+  const sizeName = normalizeSizeInput(rawInput, session.pendingItem);
+  const size = Object.values(getSizeCatalog(session.pendingItem)).find((entry) => entry.id === sizeName);
 
   if (!session.pendingItem || !session.pendingItem.category || !session.pendingItem.style || !session.pendingItem.collar) {
     xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
@@ -1771,7 +2008,9 @@ async function handleSizeSelection(req, res, baseUrl) {
     return;
   }
 
+  clearPendingItemFromStep(session.pendingItem, "size");
   session.pendingItem.size = size;
+  ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
   xml(res, 200, sleeveMenuResponse(baseUrl, size.name, session.pendingItem));
 }
@@ -1783,12 +2022,27 @@ async function handleSleeveSelection(req, res, baseUrl) {
   ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
-  const sleeveInput = String(form.Digits || form.SpeechResult || "").replace(/[^\d]/g, "");
-  const sleeve = sleeves[sleeveInput];
+  let sleeve;
+  if (isBoysItem(session.pendingItem)) {
+    const selection = normalizeSimpleSelection(form.Digits || form.SpeechResult, {
+      "1": "1",
+      one: "1",
+      long: "1",
+      "long sleeve": "1",
+      "2": "2",
+      two: "2",
+      short: "2",
+      "short sleeve": "2"
+    });
+    sleeve = boysSleeves[selection];
+  } else {
+    const sleeveInput = String(form.Digits || form.SpeechResult || "").replace(/[^\d]/g, "");
+    sleeve = mensSleeves[sleeveInput];
+  }
 
   if (!session.pendingItem || !session.pendingItem.size) {
     xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
@@ -1804,7 +2058,9 @@ async function handleSleeveSelection(req, res, baseUrl) {
     return;
   }
 
+  clearPendingItemFromStep(session.pendingItem, "sleeve");
   session.pendingItem.sleeve = sleeve;
+  ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
   xml(res, 200, fitMenuResponse(baseUrl, sleeve.name, session.pendingItem));
 }
@@ -1816,7 +2072,7 @@ async function handleFitSelection(req, res, baseUrl) {
   ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
@@ -1837,9 +2093,11 @@ async function handleFitSelection(req, res, baseUrl) {
     return;
   }
 
+  clearPendingItemFromStep(session.pendingItem, "fit");
   session.pendingItem.fit = fit;
+  ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
-  xml(res, 200, pocketMenuResponse(baseUrl, session.pendingItem));
+  xml(res, 200, currentOrderMenuResponse(baseUrl, session));
 }
 
 async function handlePocketSelection(req, res, baseUrl) {
@@ -1849,7 +2107,7 @@ async function handlePocketSelection(req, res, baseUrl) {
   ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
@@ -1866,17 +2124,17 @@ async function handlePocketSelection(req, res, baseUrl) {
     return;
   }
 
+  clearPendingItemFromStep(session.pendingItem, "pocket");
   session.pendingItem.pocket = pocket;
+  ensurePendingItemDefaults(session.pendingItem);
 
-  if (session.pendingItem.sleeve && session.pendingItem.sleeve.id === "short-sleeve") {
-    session.pendingItem.cuff = { id: "short-sleeve", name: "short sleeve" };
-    await persistSessionState(key, session);
+  await persistSessionState(key, session);
+  if (session.pendingItem.cuff && !requiresCuffSelection(session.pendingItem)) {
     await checkPreorderThenQuantity(res, baseUrl, key, session);
     return;
   }
 
-  await persistSessionState(key, session);
-  xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem));
+  xml(res, 200, currentOrderMenuResponse(baseUrl, session));
 }
 
 async function handleCuffSelection(req, res, baseUrl) {
@@ -1885,7 +2143,7 @@ async function handleCuffSelection(req, res, baseUrl) {
   ensurePendingItemDefaults(session.pendingItem);
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
@@ -1906,13 +2164,15 @@ async function handleCuffSelection(req, res, baseUrl) {
     return;
   }
 
+  clearPendingItemFromStep(session.pendingItem, "cuff");
   session.pendingItem.cuff = cuff;
+  ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
   await checkPreorderThenQuantity(res, baseUrl, key, session);
 }
 
 async function checkPreorderThenQuantity(res, baseUrl, key, session) {
-  const pendingItem = session.pendingItem;
+  const pendingItem = ensurePendingItemDefaults(session.pendingItem);
   const requestedSku = buildSku({
     category: pendingItem.category.name,
     style: pendingItem.style.name,
@@ -1962,11 +2222,12 @@ async function handleQuantitySelection(req, res, baseUrl) {
   const stateParam = new URL(req.url, "http://localhost").searchParams.get("state");
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, goToPreviousOrderMenu(baseUrl, session));
+    await respondWithPreviousOrderMenu(res, baseUrl, key, session);
     return;
   }
 
   const pendingItem = ensurePendingItemDefaults(session.pendingItem || decodePendingItem(stateParam));
+  session.pendingItem = pendingItem;
 
   if (
     !pendingItem ||
