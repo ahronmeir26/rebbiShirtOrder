@@ -352,51 +352,55 @@ async function getSession(callSid, from) {
     callSidSessionKeys.set(callSid, key);
   }
 
-  if (!sessions.has(key)) {
-    let stored = await loadSession(key);
-    const hasStoredSession = stored && typeof stored === "object";
+  // Rehydrate from persistent storage on every request so warm Vercel instances do not serve stale cart state.
+  let stored = await loadSession(key);
+  const cached = sessions.get(key);
+  const hasStoredSession = stored && typeof stored === "object";
 
-    // An empty cart is valid state. Only fall back when the primary session record is actually missing.
-    if (!hasStoredSession && String(from || "").trim()) {
-      const storedByCaller = await findSessionByCaller(String(from).trim());
-      if (storedByCaller) {
-        stored = storedByCaller;
-        key = `phone:${String(from).trim()}`;
-      }
-    }
-
-    if (!stored && callSid && String(from || "").trim()) {
-      const legacyByCall = await loadSession(callSid);
-      if (legacyByCall && Array.isArray(legacyByCall.cart) && legacyByCall.cart.length) {
-        stored = legacyByCall;
-        key = `phone:${String(from).trim()}`;
-      }
-    }
-
-    if (!stored && callSid && !String(from || "").trim()) {
-      const storedByCall = await loadSession(callSid);
-      if (storedByCall) {
-        stored = storedByCall;
-        if (storedByCall.caller) {
-          key = `phone:${String(storedByCall.caller).trim()}`;
-        } else {
-          key = callSid;
-        }
-      }
-    }
-
-    const normalized = sanitizeSession(stored);
-    if (String(from || "").trim()) {
-      normalized.caller = String(from).trim();
-    }
-    if (callSid) {
-      normalized.lastCallSid = String(callSid).trim();
-      callSidSessionKeys.set(callSid, key);
-    }
-    sessions.set(key, normalized);
+  if (!stored && cached && typeof cached === "object") {
+    stored = cached;
   }
 
-  return { key, session: sessions.get(key) };
+  // An empty cart is valid state. Only fall back when the primary session record is actually missing.
+  if (!hasStoredSession && String(from || "").trim()) {
+    const storedByCaller = await findSessionByCaller(String(from).trim());
+    if (storedByCaller) {
+      stored = storedByCaller;
+      key = `phone:${String(from).trim()}`;
+    }
+  }
+
+  if (!stored && callSid && String(from || "").trim()) {
+    const legacyByCall = (await loadSession(callSid)) || sessions.get(callSid);
+    if (legacyByCall && Array.isArray(legacyByCall.cart) && legacyByCall.cart.length) {
+      stored = legacyByCall;
+      key = `phone:${String(from).trim()}`;
+    }
+  }
+
+  if (!stored && callSid && !String(from || "").trim()) {
+    const storedByCall = (await loadSession(callSid)) || sessions.get(callSid);
+    if (storedByCall) {
+      stored = storedByCall;
+      if (storedByCall.caller) {
+        key = `phone:${String(storedByCall.caller).trim()}`;
+      } else {
+        key = callSid;
+      }
+    }
+  }
+
+  const normalized = sanitizeSession(stored);
+  if (String(from || "").trim()) {
+    normalized.caller = String(from).trim();
+  }
+  if (callSid) {
+    normalized.lastCallSid = String(callSid).trim();
+    callSidSessionKeys.set(callSid, key);
+  }
+  sessions.set(key, normalized);
+
+  return { key, session: normalized };
 }
 
 function calculateUnitPrice(item) {
@@ -1056,13 +1060,13 @@ function discountCodeMenuResponse(baseUrl) {
   return twiml([
     gather(baseUrl, {
       action: "/api/twilio/order/discount-code",
-      input: "speech",
+      input: "dtmf speech",
       finishOnKey: "",
       timeout: 10,
       speechTimeout: 5,
       enhanced: true,
-      hints: "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z, 0 1 2 3 4 5 6 7 8 9",
-      prompt: "Please say your discount code now."
+      hints: "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z, 0 1 2 3 4 5 6 7 8 9, back, star",
+      prompt: "Please say your discount code now, or press star to go back."
     }),
     say("We did not receive a discount code."),
     redirect(baseUrl, "/api/twilio/order/discount-code")
@@ -1075,8 +1079,8 @@ function discountCodeRetryResponse(baseUrl) {
       action: "/api/twilio/order/discount-code/review",
       input: "dtmf",
       numDigits: 1,
-      hints: "retry",
-      prompt: "We could not verify that discount code. Press 1 to try again."
+      hints: "retry, back",
+      prompt: "We could not verify that discount code. Press 1 to try again, or press star to go back."
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, "/api/twilio/order/discount-code")
@@ -1413,6 +1417,11 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
   const { key, session } = await getSession(form.CallSid, form.From);
   const spoken = String(form.SpeechResult || form.Digits || "").trim();
 
+  if (wantsPreviousMenu(form) || spoken.toLowerCase() === "star") {
+    xml(res, 200, postAddMenuResponse(baseUrl, session));
+    return;
+  }
+
   if (!spoken) {
     xml(res, 200, discountCodeMenuResponse(baseUrl));
     return;
@@ -1494,6 +1503,12 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
 async function handleDiscountCodeReview(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { key, session } = await getSession(form.CallSid, form.From);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, postAddMenuResponse(baseUrl, session));
+    return;
+  }
+
   const selection = normalizeSimpleSelection(form.Digits || form.SpeechResult, {
     "1": "1",
     one: "1",
