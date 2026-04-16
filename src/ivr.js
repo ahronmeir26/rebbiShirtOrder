@@ -97,6 +97,7 @@ function sanitizeSession(session) {
   const source = session && typeof session === "object" ? session : {};
   return {
     createdAt: source.createdAt || new Date().toISOString(),
+    updatedAt: source.updatedAt || source.createdAt || new Date().toISOString(),
     caller: String(source.caller || "").trim(),
     lastCallSid: String(source.lastCallSid || "").trim(),
     discountCode: source.discountCode && typeof source.discountCode === "object" ? source.discountCode : undefined,
@@ -353,25 +354,21 @@ async function getSession(callSid, from) {
   }
 
   // Rehydrate from persistent storage on every request so warm Vercel instances do not serve stale cart state.
-  let stored = await loadSession(key);
-  const cached = sessions.get(key);
-  const hasStoredSession = stored && typeof stored === "object";
-
-  if (!stored && cached && typeof cached === "object") {
-    stored = cached;
-  }
+  let stored = pickPreferredSession(await loadSession(key), sessions.get(key));
+  let hasPrimarySession = stored && typeof stored === "object";
 
   // An empty cart is valid state. Only fall back when the primary session record is actually missing.
-  if (!hasStoredSession && String(from || "").trim()) {
+  if (!hasPrimarySession && String(from || "").trim()) {
     const storedByCaller = await findSessionByCaller(String(from).trim());
     if (storedByCaller) {
       stored = storedByCaller;
       key = `phone:${String(from).trim()}`;
+      hasPrimarySession = true;
     }
   }
 
   if (!stored && callSid && String(from || "").trim()) {
-    const legacyByCall = (await loadSession(callSid)) || sessions.get(callSid);
+    const legacyByCall = pickPreferredSession(await loadSession(callSid), sessions.get(callSid));
     if (legacyByCall && Array.isArray(legacyByCall.cart) && legacyByCall.cart.length) {
       stored = legacyByCall;
       key = `phone:${String(from).trim()}`;
@@ -401,6 +398,26 @@ async function getSession(callSid, from) {
   sessions.set(key, normalized);
 
   return { key, session: normalized };
+}
+
+function sessionTimestamp(session) {
+  const value = Date.parse(String(session?.updatedAt || session?.createdAt || ""));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function pickPreferredSession(primary, secondary) {
+  const left = primary && typeof primary === "object" ? primary : null;
+  const right = secondary && typeof secondary === "object" ? secondary : null;
+
+  if (!left) {
+    return right;
+  }
+
+  if (!right) {
+    return left;
+  }
+
+  return sessionTimestamp(right) > sessionTimestamp(left) ? right : left;
 }
 
 function calculateUnitPrice(item) {
@@ -541,6 +558,7 @@ async function resetSessionState(callSid, from) {
   const emptySession = sanitizeSession({
     caller,
     lastCallSid: callKey,
+    updatedAt: new Date().toISOString(),
     cart: []
   });
 
@@ -553,7 +571,10 @@ async function resetSessionState(callSid, from) {
 }
 
 async function persistSessionState(key, session) {
-  const sanitized = sanitizeSession(session);
+  const sanitized = sanitizeSession({
+    ...(session && typeof session === "object" ? session : {}),
+    updatedAt: new Date().toISOString()
+  });
   const phoneKey = sanitized.caller ? `phone:${sanitized.caller}` : null;
   const callKey = sanitized.lastCallSid || null;
 

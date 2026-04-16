@@ -214,18 +214,23 @@ function saveSessionToFile(sessionKey, sessionRecord) {
 }
 
 function findSessionByCallerInFile(caller) {
+  let bestKey = "";
+  let bestRecord = null;
+
   try {
     const sessions = readSessionsFromFile();
-    for (const sessionRecord of Object.values(sessions)) {
-      if (sessionRecord && String(sessionRecord.caller || "").trim() === caller) {
-        return sessionRecord;
+
+    for (const [sessionKey, sessionRecord] of Object.entries(sessions)) {
+      if (sessionRecord && String(sessionRecord.caller || "").trim() === caller && isPreferredCallerSession(sessionKey, sessionRecord, bestKey, bestRecord)) {
+        bestKey = sessionKey;
+        bestRecord = sessionRecord;
       }
     }
   } catch (_error) {
     return null;
   }
 
-  return null;
+  return bestRecord;
 }
 
 function deleteSessionFromFile(sessionKey) {
@@ -335,20 +340,55 @@ async function loadSessionFromBlob(sessionKey) {
 async function findSessionByCallerInBlob(caller) {
   const { list } = blobSdk();
   let cursor;
+  let bestPathname = "";
+  let bestRecord = null;
 
   do {
     const page = await list({ prefix: SESSION_BLOB_PREFIX, cursor });
     for (const blob of Array.isArray(page.blobs) ? page.blobs : []) {
       const sessionRecord = await loadSessionFromBlob(blob.pathname.replace(SESSION_BLOB_PREFIX, "").replace(/\.json$/, ""));
-      if (sessionRecord && String(sessionRecord.caller || "").trim() === caller) {
-        return sessionRecord;
+      if (sessionRecord && String(sessionRecord.caller || "").trim() === caller && isPreferredCallerSession(blob.pathname, sessionRecord, bestPathname, bestRecord)) {
+        bestPathname = blob.pathname;
+        bestRecord = sessionRecord;
       }
     }
 
     cursor = page.hasMore ? page.cursor : undefined;
   } while (cursor);
 
-  return null;
+  return bestRecord;
+}
+
+function sessionTimestamp(sessionRecord) {
+  const value = Date.parse(String(sessionRecord?.updatedAt || sessionRecord?.createdAt || ""));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function isPhoneSessionKey(sessionKey) {
+  return String(sessionKey || "").includes("phone:");
+}
+
+function isPreferredCallerSession(candidateKey, candidateRecord, currentBestKey, currentBestRecord) {
+  if (!candidateRecord) {
+    return false;
+  }
+
+  if (!currentBestRecord) {
+    return true;
+  }
+
+  const candidateTimestamp = sessionTimestamp(candidateRecord);
+  const bestTimestamp = sessionTimestamp(currentBestRecord);
+
+  if (candidateTimestamp !== bestTimestamp) {
+    return candidateTimestamp > bestTimestamp;
+  }
+
+  if (isPhoneSessionKey(candidateKey) !== isPhoneSessionKey(currentBestKey)) {
+    return isPhoneSessionKey(candidateKey);
+  }
+
+  return false;
 }
 
 async function deleteSessionFromBlob(sessionKey) {
