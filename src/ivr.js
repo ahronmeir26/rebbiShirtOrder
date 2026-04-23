@@ -44,6 +44,7 @@ const UNIT_PRICE_BY_CATEGORY = {
 const SHIPPING_FEE = 10;
 const DEFAULT_SUBMIT_SHOPIFY_ORDER = /^(1|true|yes|on)$/i.test(String(process.env.SHOPIFY_SUBMIT_SHOPIFY_ORDER || "").trim());
 const DEFAULT_TWILIO_PAY_CONNECTOR = String(process.env.TWILIO_PAY_CONNECTOR || "Stripe_Connector").trim() || "Stripe_Connector";
+const PENNY_CC_CHARGE_AMOUNT = 0.01;
 
 const categories = {
   1: { id: "mens", name: "mens" },
@@ -712,6 +713,10 @@ function formatChargeAmount(value) {
   return toMoneyAmount(value).toFixed(2);
 }
 
+function isTruthySetting(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || "").trim());
+}
+
 function buildPreparedCheckout(items, session, pricing) {
   return {
     items: items.map(normalizeStoredItem),
@@ -727,13 +732,47 @@ function buildPreparedCheckout(items, session, pricing) {
   };
 }
 
+function buildPaymentCollectionConfig(preparedCheckout, runtimeConfig) {
+  const totalPrice = toMoneyAmount(preparedCheckout?.totalPrice || 0);
+
+  if (totalPrice <= 0) {
+    return {
+      mode: "zero-total",
+      shouldCollectCard: false,
+      chargeAmount: 0
+    };
+  }
+
+  if (runtimeConfig?.skipCreditCardPayment) {
+    return {
+      mode: "skip-card",
+      shouldCollectCard: false,
+      chargeAmount: 0
+    };
+  }
+
+  if (runtimeConfig?.chargeCreditCardOneCent) {
+    return {
+      mode: "one-cent-card",
+      shouldCollectCard: true,
+      chargeAmount: PENNY_CC_CHARGE_AMOUNT
+    };
+  }
+
+  return {
+    mode: "full-card",
+    shouldCollectCard: true,
+    chargeAmount: totalPrice
+  };
+}
+
 function paymentPromptResponse(baseUrl, preparedCheckout) {
-  const chargeAmount = formatChargeAmount(preparedCheckout.totalPrice);
+  const chargeAmount = formatChargeAmount(preparedCheckout.paymentChargeAmount || preparedCheckout.totalPrice);
   return twiml([
     say(`We will now collect your payment of ${chargeAmount} dollars.`),
     pay(baseUrl, {
       action: "/api/twilio/order/payment/complete",
-      amount: preparedCheckout.totalPrice,
+      amount: preparedCheckout.paymentChargeAmount || preparedCheckout.totalPrice,
       paymentConnector: DEFAULT_TWILIO_PAY_CONNECTOR,
       description: `Rebbi Shirt Order ${preparedCheckout.totalQuantity} item${preparedCheckout.totalQuantity === 1 ? "" : "s"}`,
       statusCallback: "/api/twilio/order/payment/status"
@@ -744,7 +783,9 @@ function paymentPromptResponse(baseUrl, preparedCheckout) {
 function buildPaymentSummary(form, preparedCheckout) {
   return {
     result: String(form.Result || "").trim() || "unknown",
-    amount: toMoneyAmount(preparedCheckout?.totalPrice || 0),
+    mode: String(preparedCheckout?.paymentMode || "full-card").trim() || "full-card",
+    amount: toMoneyAmount((preparedCheckout?.paymentChargeAmount ?? preparedCheckout?.totalPrice) || 0),
+    orderAmount: toMoneyAmount(preparedCheckout?.totalPrice || 0),
     currency: String(preparedCheckout?.currencyCode || "USD").trim() || "USD",
     connector: DEFAULT_TWILIO_PAY_CONNECTOR,
     confirmationCode: String(form.PaymentConfirmationCode || "").trim() || undefined,
@@ -753,6 +794,65 @@ function buildPaymentSummary(form, preparedCheckout) {
     cardNumber: String(form.PaymentCardNumber || "").trim() || undefined,
     expirationDate: String(form.ExpirationDate || "").trim() || undefined
   };
+}
+
+function buildSkippedPaymentSummary(preparedCheckout, reason) {
+  return {
+    result: "skipped",
+    mode: String(preparedCheckout?.paymentMode || reason || "skipped").trim() || "skipped",
+    reason,
+    amount: 0,
+    orderAmount: toMoneyAmount(preparedCheckout?.totalPrice || 0),
+    currency: String(preparedCheckout?.currencyCode || "USD").trim() || "USD",
+    connector: DEFAULT_TWILIO_PAY_CONNECTOR,
+    method: "credit-card"
+  };
+}
+
+function paymentWasApproved(payment) {
+  return String(payment?.result || "").trim().toLowerCase() === "success";
+}
+
+function paymentWasSkipped(payment) {
+  return String(payment?.result || "").trim().toLowerCase() === "skipped";
+}
+
+function draftOrderFailureMessage(payment) {
+  if (paymentWasApproved(payment)) {
+    return "Your payment was approved, but we could not create your Shopify draft order. Please contact the store so we can finish the order.";
+  }
+
+  if (paymentWasSkipped(payment)) {
+    return "We skipped the card charge, but could not create your Shopify draft order. Please contact the store so we can finish the order.";
+  }
+
+  return "We could not create your draft order right now. Please try again in a few minutes.";
+}
+
+function shopifyOrderFailureMessage(payment) {
+  if (paymentWasApproved(payment)) {
+    return "Your payment was approved, but we could not finish the Shopify order right now. Please contact the store so we can complete it.";
+  }
+
+  if (paymentWasSkipped(payment)) {
+    return "We skipped the card charge, but we could not finish the Shopify order right now. Please contact the store so we can complete it.";
+  }
+
+  return "Your draft order was created, but we could not submit the order right now. Please try again in a few minutes.";
+}
+
+function orderSuccessMessage(shouldSubmitShopifyOrder, payment) {
+  const orderLabel = shouldSubmitShopifyOrder ? "shirt order" : "shirt draft order";
+
+  if (paymentWasSkipped(payment)) {
+    if (String(payment?.reason || "").trim() === "zero-total") {
+      return `Thank you. Your ${orderLabel} has been created.`;
+    }
+
+    return `Thank you. Card payment was skipped and your ${orderLabel} has been created.`;
+  }
+
+  return `Thank you. Your payment was received and your ${orderLabel} has been created.`;
 }
 
 async function submitPreparedOrder({ key, form, session, preparedCheckout, shouldSubmitShopifyOrder, payment }) {
@@ -792,9 +892,7 @@ async function submitPreparedOrder({ key, form, session, preparedCheckout, shoul
     return {
       ok: false,
       orderRecord,
-      message: payment?.confirmationCode
-        ? "Your payment was approved, but we could not create your Shopify draft order. Please contact the store so we can finish the order."
-        : "We could not create your draft order right now. Please try again in a few minutes."
+      message: draftOrderFailureMessage(payment)
     };
   }
 
@@ -817,9 +915,7 @@ async function submitPreparedOrder({ key, form, session, preparedCheckout, shoul
       return {
         ok: false,
         orderRecord,
-        message: payment?.confirmationCode
-          ? "Your payment was approved, but we could not finish the Shopify order right now. Please contact the store so we can complete it."
-          : "Your draft order was created, but we could not submit the order right now. Please try again in a few minutes."
+        message: shopifyOrderFailureMessage(payment)
       };
     }
   }
@@ -828,17 +924,21 @@ async function submitPreparedOrder({ key, form, session, preparedCheckout, shoul
   return {
     ok: true,
     orderRecord,
-    message: shouldSubmitShopifyOrder
-      ? "Thank you. Your payment was received and your shirt order has been created."
-      : "Thank you. Your payment was received and your shirt draft order has been created."
+    message: orderSuccessMessage(shouldSubmitShopifyOrder, payment)
   };
 }
 
 function normalizeRuntimeConfig(config) {
   const source = config && typeof config === "object" ? config : {};
+  const skipCreditCardPayment = typeof source.skipCreditCardPayment === "boolean" ? source.skipCreditCardPayment : false;
+  const chargeCreditCardOneCent =
+    !skipCreditCardPayment && typeof source.chargeCreditCardOneCent === "boolean" ? source.chargeCreditCardOneCent : false;
+
   return {
     submitShopifyOrder:
-      typeof source.submitShopifyOrder === "boolean" ? source.submitShopifyOrder : DEFAULT_SUBMIT_SHOPIFY_ORDER
+      typeof source.submitShopifyOrder === "boolean" ? source.submitShopifyOrder : DEFAULT_SUBMIT_SHOPIFY_ORDER,
+    skipCreditCardPayment,
+    chargeCreditCardOneCent
   };
 }
 
@@ -1342,7 +1442,7 @@ function renderLoginPage({ error = "", nextPath = "/", logout = false, username 
   <body>
     <main class="card">
       <h1>Admin Login</h1>
-      <p>Sign in as <strong>${configuredUsername}</strong> to access the order dashboard, IVR test page, and transfer tools.</p>
+      <p>Sign in to access the order dashboard, IVR test page, and transfer tools.</p>
       ${notice}
       ${errorMarkup}
       <form method="POST" action="/login" autocomplete="off">
@@ -2287,9 +2387,14 @@ async function handleTestSettingsGet(_req, res) {
 
 async function handleTestSettingsUpdate(req, res) {
   const form = await parseFormBody(req);
-  const rawValue = String(form.submitShopifyOrder || "").trim().toLowerCase();
-  const submitShopifyOrder = rawValue === "true" || rawValue === "1" || rawValue === "yes" || rawValue === "on";
-  const config = await updateRuntimeConfig({ submitShopifyOrder });
+  const submitShopifyOrder = isTruthySetting(form.submitShopifyOrder);
+  const skipCreditCardPayment = isTruthySetting(form.skipCreditCardPayment);
+  const chargeCreditCardOneCent = !skipCreditCardPayment && isTruthySetting(form.chargeCreditCardOneCent);
+  const config = await updateRuntimeConfig({
+    submitShopifyOrder,
+    skipCreditCardPayment,
+    chargeCreditCardOneCent
+  });
   json(res, 200, config);
 }
 
@@ -2952,34 +3057,31 @@ async function handleFinalizeOrder(req, res, baseUrl) {
     discountAmount: 0,
     currencyCode: "USD"
   });
+  const paymentCollection = buildPaymentCollectionConfig(preparedCheckout, runtimeConfig);
 
   session.pendingCheckout = {
     ...preparedCheckout,
-    shouldSubmitShopifyOrder
+    shouldSubmitShopifyOrder,
+    paymentMode: paymentCollection.mode,
+    paymentChargeAmount: paymentCollection.chargeAmount
   };
   await persistSessionState(key, session);
 
-  if (preparedCheckout.totalPrice <= 0) {
+  if (!paymentCollection.shouldCollectCard) {
     const result = await submitPreparedOrder({
       key,
       form,
       session,
-      preparedCheckout,
+      preparedCheckout: session.pendingCheckout,
       shouldSubmitShopifyOrder,
-      payment: {
-        result: "skipped",
-        reason: "zero-total",
-        amount: 0,
-        currency: preparedCheckout.currencyCode,
-        connector: DEFAULT_TWILIO_PAY_CONNECTOR
-      }
+      payment: buildSkippedPaymentSummary(session.pendingCheckout, paymentCollection.mode === "zero-total" ? "zero-total" : "admin-toggle")
     });
     await resetSessionState(form.CallSid || key, form.From);
     xml(res, 200, twiml([say(result.message), hangup()]));
     return;
   }
 
-  xml(res, 200, paymentPromptResponse(baseUrl, preparedCheckout));
+  xml(res, 200, paymentPromptResponse(baseUrl, session.pendingCheckout));
 }
 
 async function handlePaymentStatus(req, res) {

@@ -387,6 +387,20 @@
               <span class="toggle-note" id="submit-order-note">Loading current setting...</span>
             </span>
           </label>
+          <label class="toggle" for="skip-cc-toggle">
+            <input type="checkbox" id="skip-cc-toggle" />
+            <span class="toggle-copy">
+              <span>Skip credit card payment</span>
+              <span class="toggle-note" id="skip-cc-note">Loading current setting...</span>
+            </span>
+          </label>
+          <label class="toggle" for="penny-cc-toggle">
+            <input type="checkbox" id="penny-cc-toggle" />
+            <span class="toggle-copy">
+              <span>Charge $0.01 only</span>
+              <span class="toggle-note" id="penny-cc-note">Loading current setting...</span>
+            </span>
+          </label>
           <label class="status">
             <input type="checkbox" id="auto-refresh" checked />
             Auto refresh
@@ -412,6 +426,10 @@
       const brandLogo = document.getElementById("brand-logo");
       const submitOrderToggle = document.getElementById("submit-order-toggle");
       const submitOrderNote = document.getElementById("submit-order-note");
+      const skipCcToggle = document.getElementById("skip-cc-toggle");
+      const skipCcNote = document.getElementById("skip-cc-note");
+      const pennyCcToggle = document.getElementById("penny-cc-toggle");
+      const pennyCcNote = document.getElementById("penny-cc-note");
       let timer = null;
       const appPrefix = window.location.pathname === "/rso" || window.location.pathname.startsWith("/rso/") ? "/rso" : "";
 
@@ -454,9 +472,62 @@
         window.location.href = appUrl(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       }
 
-      function setSubmitOrderUi(enabled, note) {
-        submitOrderToggle.checked = Boolean(enabled);
-        submitOrderNote.textContent = note || (enabled ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on.");
+      function setSettingsUi(settings) {
+        const submitEnabled = Boolean(settings && settings.submitShopifyOrder);
+        const skipCcEnabled = Boolean(settings && settings.skipCreditCardPayment);
+        const pennyEnabled = Boolean(settings && settings.chargeCreditCardOneCent);
+
+        submitOrderToggle.checked = submitEnabled;
+        submitOrderNote.textContent = submitEnabled ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on.";
+
+        skipCcToggle.checked = skipCcEnabled;
+        skipCcNote.textContent = skipCcEnabled ? "Twilio Pay is bypassed for live and test IVR." : "Cards will still be collected.";
+
+        pennyCcToggle.checked = pennyEnabled;
+        pennyCcToggle.disabled = skipCcEnabled;
+        pennyCcNote.textContent = skipCcEnabled
+          ? "Disabled while card collection is skipped."
+          : pennyEnabled
+            ? "Live and test IVR will collect only $0.01."
+            : "The full order total will be charged.";
+      }
+
+      async function saveSettings() {
+        const payload = new URLSearchParams({
+          submitShopifyOrder: submitOrderToggle.checked ? "true" : "false",
+          skipCreditCardPayment: skipCcToggle.checked ? "true" : "false",
+          chargeCreditCardOneCent: !skipCcToggle.checked && pennyCcToggle.checked ? "true" : "false"
+        });
+
+        submitOrderToggle.disabled = true;
+        skipCcToggle.disabled = true;
+        pennyCcToggle.disabled = true;
+        submitOrderNote.textContent = "Saving...";
+        skipCcNote.textContent = "Saving...";
+        pennyCcNote.textContent = "Saving...";
+
+        try {
+          const response = await fetch(appUrl("/api/admin/settings"), {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: payload
+          });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+
+          const settings = await response.json();
+          setSettingsUi(settings);
+        } catch (_error) {
+          await loadSettings();
+          statusEl.textContent = "Could not save settings.";
+          return;
+        } finally {
+          submitOrderToggle.disabled = false;
+          skipCcToggle.disabled = false;
+          pennyCcToggle.disabled = Boolean(skipCcToggle.checked);
+        }
       }
 
       function renderEmpty() {
@@ -594,39 +665,16 @@
             return;
           }
           const settings = await response.json();
-          setSubmitOrderUi(
-            settings.submitShopifyOrder,
-            settings.submitShopifyOrder ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on."
-          );
+          setSettingsUi(settings);
         } catch (_error) {
-          setSubmitOrderUi(false, "Could not load the submit-order setting.");
-        }
-      }
-
-      async function updateSubmitOrderSetting() {
-        const enabled = submitOrderToggle.checked;
-        submitOrderToggle.disabled = true;
-        submitOrderNote.textContent = "Saving...";
-
-        try {
-          const response = await fetch(appUrl("/api/admin/settings"), {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({ submitShopifyOrder: enabled ? "true" : "false" })
+          setSettingsUi({
+            submitShopifyOrder: false,
+            skipCreditCardPayment: false,
+            chargeCreditCardOneCent: false
           });
-          if (response.status === 401) {
-            redirectToLogin();
-            return;
-          }
-          const settings = await response.json();
-          setSubmitOrderUi(
-            settings.submitShopifyOrder,
-            settings.submitShopifyOrder ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on."
-          );
-        } catch (_error) {
-          setSubmitOrderUi(!enabled, "Could not save the submit-order setting.");
-        } finally {
-          submitOrderToggle.disabled = false;
+          submitOrderNote.textContent = "Could not load settings.";
+          skipCcNote.textContent = "Could not load settings.";
+          pennyCcNote.textContent = "Could not load settings.";
         }
       }
 
@@ -645,7 +693,14 @@
         window.location.href = appUrl("/logout");
       });
       autoRefresh.addEventListener("change", setAutoRefresh);
-      submitOrderToggle.addEventListener("change", updateSubmitOrderSetting);
+      submitOrderToggle.addEventListener("change", saveSettings);
+      skipCcToggle.addEventListener("change", () => {
+        if (skipCcToggle.checked) {
+          pennyCcToggle.checked = false;
+        }
+        saveSettings();
+      });
+      pennyCcToggle.addEventListener("change", saveSettings);
 
       loadOrders();
       loadSettings();
