@@ -6,6 +6,7 @@
 - Do not commit or push changes unless the user explicitly asks.
 - When the user says `commit`, commit the current changes locally without pushing.
 - When the user says `deploy`, commit the current changes and push them to `origin`.
+- Treat `deploy` as an immediate commit-and-push request for the current changes.
 - When implementing features in this repo, make sure the behavior works in both local dev and Vercel environments.
 - For any code change in this repo, always verify the implementation will work on the Vercel server, not just in local dev.
 - When running the local dev server for this repo, also run ngrok so Twilio can reach the local app.

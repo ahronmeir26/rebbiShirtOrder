@@ -6,10 +6,10 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 
 ## IVR flow
 
-- Main menu lets callers order shirts, hear the cart, hear store hours, or transfer to a representative.
+- Each new call starts with mandatory numeric discount-code entry, then the main menu lets callers order shirts, hear the cart, hear store hours, or transfer to a representative.
 - Shirt ordering walks through category, style, size, sleeve length, fit, pocket, cuff, and quantity.
-- After each item is added, the caller can add another shirt, hear the cart again, place the order, or cancel.
-- The cart is read back over the phone with quantities and shirt attributes.
+- After each item is added, the caller can add another shirt, hear the cart again, review the discount code, or place the order.
+- The cart is read back over the phone with quantities and shirt attributes, and callers can change quantity or delete items during playback.
 - Allowed options are restricted to mens or boys, standard or chassidish, size 14 through 20 including half sizes, sleeve 30 through 37 or short sleeve, fit classic/slim/extra slim/super slim, twill only, pocket yes/no, and cuff button/french or short sleeve.
 
 ## Routes
@@ -26,6 +26,12 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 - `POST /api/twilio/order/cuff`
 - `POST /api/twilio/order/quantity`
 - `POST /api/twilio/order/next`
+- `POST /api/twilio/order/discount-code`
+- `POST /api/twilio/order/discount-code/review`
+- `POST /api/twilio/order/finalize`
+- `POST /api/twilio/cart/play`
+- `POST /api/twilio/cart/control`
+- `POST /api/twilio/cart/quantity`
 - `GET /`
 - `GET /api/health`
 - `GET /api/orders`
