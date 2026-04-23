@@ -1814,25 +1814,7 @@ function isDevServerBaseUrl(baseUrl) {
   return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") || baseUrl.includes("ngrok");
 }
 
-function shouldAnnounceSavedCart(session) {
-  const createdAt = Date.parse(String(session?.createdAt || ""));
-  const updatedAt = Date.parse(String(session?.updatedAt || ""));
-  return Boolean(
-    session?.caller &&
-      !session?.cart?.length &&
-      !session?.pendingItem &&
-      !session?.discountCode &&
-      Number.isFinite(createdAt) &&
-      Number.isFinite(updatedAt) &&
-      createdAt === updatedAt
-  );
-}
-
-function mainMenuResponse(baseUrl, session) {
-  const savedCartPrompt = shouldAnnounceSavedCart(session)
-    ? " Your cart will be saved using your phone number."
-    : "";
-
+function mainMenuResponse(baseUrl, _session) {
   return twiml([
     ...(isDevServerBaseUrl(baseUrl) ? [say("Using dev server.")] : []),
     gather(baseUrl, {
@@ -1841,7 +1823,7 @@ function mainMenuResponse(baseUrl, session) {
       numDigits: 1,
       hints: "order shirts, cart, hours, representative",
       prompt:
-        `Welcome to Appreciation Initiative shirt ordering. Press 1 to order shirts. Press 2 to hear what is in your cart.${savedCartPrompt} Press 3 for store hours. Press 4 to speak with a representative.`
+        "Welcome to Appreciation Initiative shirt ordering. Press 1 to order shirts. Press 2 to hear cart. Your cart will be saved if you call in with the same phone number. Press 3 for store hours. Press 4 to speak with a representative."
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, "/api/twilio/voice")
