@@ -600,7 +600,7 @@
         const pennyEnabled = Boolean(settings && settings.chargeCreditCardOneCent);
 
         submitOrderToggle.checked = submitEnabled;
-        submitOrderNote.textContent = submitEnabled ? "Live IVR will submit real Shopify orders." : "Draft-only mode is on.";
+        submitOrderNote.textContent = submitEnabled ? "Live IVR will submit real orders." : "Draft-only mode is on.";
 
         skipCcToggle.checked = skipCcEnabled;
         skipCcNote.textContent = skipCcEnabled ? "Twilio Pay is bypassed for live and test IVR." : "Cards will still be collected.";
@@ -760,7 +760,7 @@
         const source = shipping.source === "spoken"
           ? "Spoken by caller"
           : shipping.lookupPhone
-            ? `Shopify lookup ${escapeHtml(shipping.lookupPhone)}`
+            ? `Saved address lookup ${escapeHtml(shipping.lookupPhone)}`
             : "Saved address";
         const reviewNote = shipping.status === "needs-review" ? " · needs staff review" : "";
 

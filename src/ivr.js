@@ -837,26 +837,26 @@ function paymentWasSkipped(payment) {
 
 function draftOrderFailureMessage(payment) {
   if (paymentWasApproved(payment)) {
-    return "Your payment was approved, but we could not create your Shopify draft order. Please contact the store so we can finish the order.";
+    return "Your payment was approved, but we could not create your order. Please contact the store so we can finish it.";
   }
 
   if (paymentWasSkipped(payment)) {
-    return "We skipped the card charge, but could not create your Shopify draft order. Please contact the store so we can finish the order.";
+    return "We skipped the card charge, but could not create your order. Please contact the store so we can finish it.";
   }
 
-  return "We could not create your draft order right now. Please try again in a few minutes.";
+  return "We could not create your order right now. Please try again in a few minutes.";
 }
 
 function shopifyOrderFailureMessage(payment) {
   if (paymentWasApproved(payment)) {
-    return "Your payment was approved, but we could not finish the Shopify order right now. Please contact the store so we can complete it.";
+    return "Your payment was approved, but we could not finish the order right now. Please contact the store so we can complete it.";
   }
 
   if (paymentWasSkipped(payment)) {
-    return "We skipped the card charge, but we could not finish the Shopify order right now. Please contact the store so we can complete it.";
+    return "We skipped the card charge, but we could not finish the order right now. Please contact the store so we can complete it.";
   }
 
-  return "Your draft order was created, but we could not submit the order right now. Please try again in a few minutes.";
+  return "Your order was created, but we could not submit it right now. Please try again in a few minutes.";
 }
 
 function orderSuccessMessage(shouldSubmitShopifyOrder, payment) {
@@ -1710,7 +1710,10 @@ function shippingAddressFromCustomer(customer, source, linkedCallerPhone) {
       displayName: customer.displayName,
       phone: customer.phone
     },
+    addressSource: customer.addressSource || "customer",
+    sourceOrder: customer.sourceOrder,
     address: customer.defaultAddress,
+    lookupVerifiedExact: true,
     updatedAt: now
   };
 }
@@ -1763,6 +1766,16 @@ function normalizeLookupPhoneInput(input) {
   }
 
   return "";
+}
+
+function savedStructuredAddressCanBeReused(session, callPhone) {
+  if (!session?.shippingAddress?.address || session.shippingAddress.lookupVerifiedExact !== true) {
+    return false;
+  }
+
+  const lookupPhone = normalizePhoneForShopify(session.shippingAddress.lookupPhone);
+  const callerPhone = normalizePhoneForShopify(callPhone || session.caller);
+  return Boolean(lookupPhone && callerPhone && lookupPhone === callerPhone);
 }
 
 function itemSpeechParts(item) {
@@ -2042,13 +2055,13 @@ function discountCodeMenuResponse(baseUrl, context = "summary") {
       input: "dtmf",
       finishOnKey: "#",
       timeout: DEFAULT_SELECTION_TIMEOUT + 1,
-      hints: "discount code, 0 1 2 3 4 5 6 7 8 9, back, star",
+      hints: "coupon code, 0 1 2 3 4 5 6 7 8 9, back, star",
       prompt:
         context === "order-start"
-          ? "If you have a numeric coupon code, enter it now and press pound. If not, just press pound to continue."
-          : "Enter your numeric discount code now and press pound. Press pound with no digits to continue, or press star to go back."
+          ? "Enter your numeric coupon code now, then press pound."
+          : "Enter your numeric coupon code now, then press pound. Press star to go back."
     }),
-    say("We did not receive a discount code."),
+    say("We did not receive a coupon code."),
     redirect(baseUrl, action)
   ]);
 }
@@ -2060,7 +2073,7 @@ function discountCodeRetryResponse(baseUrl, context = "summary") {
       input: "dtmf",
       numDigits: 1,
       hints: "retry, back",
-      prompt: "We could not verify that discount code. Press 1 to try again, or press star to go back."
+      prompt: "We could not verify that coupon code. Press 1 to try again, or press star to go back."
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, `/api/twilio/order/discount-code?context=${encodeURIComponent(context)}`)
@@ -2074,8 +2087,8 @@ function shippingAddressReviewResponse(baseUrl, session) {
   const prompt = hasPendingAddress
     ? `I found this shipping address: ${addressSpeech(pending)}. Press 1 to use this address. Press 2 to say a different address. Press 3 to try another phone number. Press star to go back.`
     : lookupUnavailable
-      ? "I could not look up the Shopify customer address right now. Press 1 to say the shipping address. Press 2 to try another phone number. Press star to go back."
-    : `I could not find a Shopify customer with a shipping address for that phone number. Press 1 to say the shipping address. Press 2 to try another phone number. Press star to go back.`;
+      ? "I could not look up a saved address right now. Press 1 to say the shipping address. Press 2 to try another phone number. Press star to go back."
+    : `I could not find a saved address for that phone number. Press 1 to say the shipping address. Press 2 to try another phone number. Press star to go back.`;
 
   return twiml([
     gather(baseUrl, {
@@ -2113,7 +2126,7 @@ function shippingAddressPhoneResponse(baseUrl) {
       finishOnKey: "#",
       timeout: DEFAULT_SELECTION_TIMEOUT + 2,
       hints: "phone number",
-      prompt: "Enter the 10 digit phone number to search in Shopify, then press pound. Press star to go back."
+      prompt: "Enter the 10 digit phone number to search for a saved address, then press pound. Press star to go back."
     }),
     say("We did not receive a phone number."),
     redirect(baseUrl, "/api/twilio/order/address/phone")
@@ -2136,8 +2149,8 @@ function postAddMenuResponse(baseUrl, session, addedItem) {
       action: "/api/twilio/order/next",
       input: "dtmf",
       numDigits: 1,
-      hints: "add another, hear cart, discount code",
-      prompt: `Your total, including 10 dollars shipping, will be ${totalPrice} dollars after discount code is applied. You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to play your cart again. Press 3 to review your discount code and place this order.`
+      hints: "add another, hear cart, place order",
+      prompt: `Your total, including 10 dollars shipping, is ${totalPrice} dollars. You currently have ${totalUnits} shirts in your cart. Press 1 to add another shirt. Press 2 to play your cart again. Press 3 to place this order.`
     })
   );
   parts.push(say("We did not receive a valid selection."));
@@ -2530,7 +2543,7 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
 
   if (!spoken) {
     await persistSessionState(key, session);
-    xml(res, 200, twiml([redirect(baseUrl, targetPath)]));
+    xml(res, 200, discountCodeMenuResponse(baseUrl, context));
     return;
   }
 
@@ -2557,7 +2570,7 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
         res,
         200,
         twiml([
-          say(`Discount code ${normalizedCode} was found.`),
+          say(`Coupon code ${normalizedCode} was found.`),
           redirect(baseUrl, targetPath)
         ])
       );
@@ -2584,7 +2597,7 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
 
     delete session.discountCode;
     await persistSessionState(key, session);
-    xml(res, 200, twiml([say(`I heard ${normalizedCode}. That discount code was not found. Please try again.`), twimlBody(discountCodeMenuResponse(baseUrl, context))]));
+    xml(res, 200, twiml([say(`I heard ${normalizedCode}. That coupon code was not found. Please try again.`), twimlBody(discountCodeMenuResponse(baseUrl, context))]));
   } catch (_error) {
     session.discountCode = {
       code: normalizedCode,
@@ -2692,7 +2705,7 @@ async function handleShippingAddressStart(req, res, baseUrl) {
     return;
   }
 
-  if (session.shippingAddress?.address || session.shippingAddress?.raw) {
+  if (session.shippingAddress?.raw || savedStructuredAddressCanBeReused(session, form.From || session.caller)) {
     session.pendingShippingAddressLookup = {
       ...session.shippingAddress,
       lookupStatus: "saved"
@@ -3550,7 +3563,7 @@ async function handlePostAddMenu(req, res, baseUrl) {
   }
 
   if (selection === "3") {
-    xml(res, 200, discountCodeMenuResponse(baseUrl, "summary"));
+    xml(res, 200, twiml([redirect(baseUrl, "/api/twilio/order/finalize")]));
     return;
   }
 

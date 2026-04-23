@@ -128,6 +128,25 @@ function normalizePhoneForShopify(value) {
   return String(value || "").trim().startsWith("+") ? `+${digits}` : digits;
 }
 
+function comparablePhoneDigits(value) {
+  const digits = normalizePhoneDigits(value);
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1);
+  }
+
+  return digits;
+}
+
+function phoneMatches(left, right) {
+  const leftDigits = comparablePhoneDigits(left);
+  const rightDigits = comparablePhoneDigits(right);
+  return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
+}
+
+function addressPhoneMatches(address, lookupPhone) {
+  return phoneMatches(address?.phone, lookupPhone);
+}
+
 function normalizeCustomerAddress(address) {
   if (!address || typeof address !== "object") {
     return null;
@@ -198,17 +217,118 @@ function normalizeCustomerNode(node, lookupPhone) {
 
   const addresses = Array.isArray(node.addresses) ? node.addresses.map(normalizeCustomerAddress).filter(Boolean) : [];
   const defaultAddress = normalizeCustomerAddress(node.defaultAddress) || addresses[0] || null;
+  const customerPhone = String(node.defaultPhoneNumber?.phoneNumber || "").trim() || undefined;
+  const exactPhoneMatch = phoneMatches(customerPhone, lookupPhone) || addresses.some((address) => addressPhoneMatches(address, lookupPhone));
 
   return {
     id: String(node.id || "").trim(),
     displayName: String(node.displayName || [node.firstName, node.lastName].filter(Boolean).join(" ") || "").trim(),
     firstName: String(node.firstName || "").trim() || undefined,
     lastName: String(node.lastName || "").trim() || undefined,
-    phone: String(node.defaultPhoneNumber?.phoneNumber || "").trim() || undefined,
+    phone: customerPhone,
     lookupPhone,
+    exactPhoneMatch,
     defaultAddress,
     addresses
   };
+}
+
+function orderPhoneMatches(order, lookupPhone) {
+  return Boolean(
+    phoneMatches(order?.phone, lookupPhone) ||
+      phoneMatches(order?.customer?.defaultPhoneNumber?.phoneNumber, lookupPhone) ||
+      addressPhoneMatches(order?.shippingAddress, lookupPhone) ||
+      addressPhoneMatches(order?.billingAddress, lookupPhone)
+  );
+}
+
+function orderAddressSelection(order, lookupPhone) {
+  if (!orderPhoneMatches(order, lookupPhone)) {
+    return null;
+  }
+
+  const shippingAddress = normalizeCustomerAddress(order?.shippingAddress);
+  if (shippingAddress) {
+    return {
+      address: shippingAddress,
+      source: "recent-order-shipping",
+      orderId: String(order.id || "").trim(),
+      orderName: String(order.name || "").trim()
+    };
+  }
+
+  const billingAddress = normalizeCustomerAddress(order?.billingAddress);
+  if (billingAddress) {
+    return {
+      address: billingAddress,
+      source: "recent-order-billing",
+      orderId: String(order.id || "").trim(),
+      orderName: String(order.name || "").trim()
+    };
+  }
+
+  return null;
+}
+
+async function findRecentOrderAddressByPhone(lookupPhone) {
+  const query = `
+    query RecentOrderAddressByPhone($query: String!) {
+      orders(first: 5, query: $query, sortKey: UPDATED_AT, reverse: true) {
+        nodes {
+          id
+          name
+          phone
+          customer {
+            defaultPhoneNumber {
+              phoneNumber
+            }
+          }
+          shippingAddress {
+            firstName
+            lastName
+            name
+            company
+            address1
+            address2
+            city
+            province
+            provinceCode
+            country
+            countryCodeV2
+            zip
+            phone
+          }
+          billingAddress {
+            firstName
+            lastName
+            name
+            company
+            address1
+            address2
+            city
+            province
+            provinceCode
+            country
+            countryCodeV2
+            zip
+            phone
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, { query: `phone:${lookupPhone}` });
+  const orders = Array.isArray(data.orders?.nodes) ? data.orders.nodes : [];
+
+  for (const order of orders) {
+    const selected = orderAddressSelection(order, lookupPhone);
+    if (selected) {
+      return selected;
+    }
+  }
+
+  return null;
 }
 
 async function findCustomerByPhone(phone) {
@@ -268,7 +388,42 @@ async function findCustomerByPhone(phone) {
   const data = await fetchGraphqlJson(query, { query: `phone:${lookupPhone}` });
   const customers = Array.isArray(data.customers?.nodes) ? data.customers.nodes : [];
   const normalized = customers.map((node) => normalizeCustomerNode(node, lookupPhone)).filter(Boolean);
-  return normalized.find((customer) => customer.defaultAddress) || normalized[0] || null;
+  const customerWithAddress = normalized.find((customer) => customer.exactPhoneMatch && customer.defaultAddress);
+  if (customerWithAddress) {
+    return {
+      ...customerWithAddress,
+      addressSource: "customer"
+    };
+  }
+
+  let recentOrderAddress = null;
+  try {
+    recentOrderAddress = await findRecentOrderAddressByPhone(lookupPhone);
+  } catch (error) {
+    if (!/Access denied/i.test(String(error?.message || ""))) {
+      throw error;
+    }
+  }
+
+  if (recentOrderAddress?.address) {
+    return {
+      ...(normalized[0] || {
+        id: "",
+        displayName: "",
+        lookupPhone,
+        addresses: []
+      }),
+      lookupPhone,
+      defaultAddress: recentOrderAddress.address,
+      addressSource: recentOrderAddress.source,
+      sourceOrder: {
+        id: recentOrderAddress.orderId,
+        name: recentOrderAddress.orderName
+      }
+    };
+  }
+
+  return normalized.find((customer) => customer.exactPhoneMatch) || null;
 }
 
 function buildLineItemInput(item) {

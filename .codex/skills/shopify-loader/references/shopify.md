@@ -206,9 +206,10 @@ The IVR confirm step in this repo now creates Shopify draft orders instead of on
 
 Current implementation:
 
-- Before payment/final submission, the IVR tries to find a Shopify customer by phone using the Admin GraphQL `customers` query and the `phone:` filter, for example `query: "phone:+18005550100"`.
-- Customer lookup requests need customer read access (`read_customers`) and request `defaultPhoneNumber`, `defaultAddress`, and `addresses`.
-- If a customer with a default address is found, the caller can use it, speak a different address, or try another phone number. Another lookup phone is stored with `linkedCallerPhone` so staff can see which call-in number used it.
+- Before payment/final submission, the IVR tries to find a saved address by phone using the Admin GraphQL `customers` query and the `phone:` filter, for example `query: "phone:+18005550100"`.
+- Customer lookup requests need customer read access (`read_customers`) and request `defaultPhoneNumber`, `defaultAddress`, and `addresses`; if no customer address exists, fall back to recent order `shippingAddress`, then recent order `billingAddress` using order read access (`read_orders`).
+- Because Shopify phone search can return broad results, the IVR must only trust a returned customer/order address when the returned customer phone, order phone, shipping address phone, or billing address phone exactly matches the lookup phone after normalization.
+- If a saved address is found, the caller can use it, speak a different address, or try another phone number. Another lookup phone is stored with `linkedCallerPhone` so staff can see which call-in number used it.
 - Structured Shopify customer addresses are passed into `draftOrderCreate.shippingAddress`; spoken free-form addresses are stored on the local order record and included in draft order notes/custom attributes for staff review.
 - match the IVR cart line to a cached preorder Shopify variant
 - keep `variantId`, `sku`, and Shopify `price` in the preorder cache
@@ -230,8 +231,8 @@ Submission toggle behavior:
 Current pricing approach:
 
 - the IVR subtotal uses the matched Shopify variant prices
-- discount codes are collected by speech near the end of the IVR flow
-- normalize spoken codes by uppercasing and stripping non-alphanumeric characters
+- coupon codes are collected immediately after the caller presses 1 to order shirts unless a code is already saved for that caller phone number
+- normalize entered coupon codes by keeping digits only
 - if `read_discounts` is available, look up the code with `codeDiscountNodeByCode`
 - if `read_discounts` is not available, preserve the entered code and still attach it to the draft order for later analysis
 

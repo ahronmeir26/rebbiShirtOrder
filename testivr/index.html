@@ -283,7 +283,7 @@
           <label class="toggle" for="submit-order-toggle">
             <input type="checkbox" id="submit-order-toggle" />
             <span>
-              Submit a real Shopify order after draft creation.
+              Submit a real order after draft creation.
               <span class="note small" id="submit-order-note">Loading current setting...</span>
             </span>
           </label>
@@ -392,7 +392,7 @@
         const pennyEnabled = Boolean(settings && settings.chargeCreditCardOneCent);
 
         submitOrderToggleEl.checked = submitEnabled;
-        submitOrderNoteEl.textContent = submitEnabled ? "Real Shopify order submission is on." : "Draft-only mode is on.";
+        submitOrderNoteEl.textContent = submitEnabled ? "Real order submission is on." : "Draft-only mode is on.";
 
         skipCcToggleEl.checked = skipCcEnabled;
         skipCcNoteEl.textContent = skipCcEnabled ? "Twilio Pay is bypassed for this flow." : "Cards will still be collected.";
