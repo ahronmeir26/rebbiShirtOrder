@@ -330,6 +330,37 @@
         font-weight: 600;
       }
 
+      .shipping {
+        display: grid;
+        gap: 6px;
+        margin: 0 0 14px;
+        padding: 12px 13px;
+        border-radius: 14px;
+        border: 1px solid rgba(109, 158, 232, 0.24);
+        background: rgba(238, 244, 255, 0.72);
+      }
+
+      .shipping-title {
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--accent-deep);
+      }
+
+      .shipping-lines,
+      .shipping-meta {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.86rem;
+        line-height: 1.4;
+      }
+
+      .shipping-lines {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
       .items {
         display: grid;
         gap: 10px;
@@ -697,6 +728,51 @@
         return [prefix, ...parts].join("-");
       }
 
+      function addressLines(address) {
+        if (!address || typeof address !== "object") return [];
+        return [
+          address.name,
+          address.company,
+          [address.address1, address.address2].filter(Boolean).join(", "),
+          [address.city, address.provinceCode || address.province, address.zip].filter(Boolean).join(", "),
+          address.country
+        ].filter(Boolean);
+      }
+
+      function renderShippingAddress(order) {
+        const shipping = order.shippingAddress && typeof order.shippingAddress === "object" ? order.shippingAddress : null;
+        if (!shipping) {
+          return `
+            <section class="shipping">
+              <div class="shipping-title">Shipping Address</div>
+              <p class="shipping-meta">No shipping address captured.</p>
+            </section>
+          `;
+        }
+
+        const lines = addressLines(shipping.address);
+        const spoken = String(shipping.raw || "").trim();
+        const displayLines = lines.length ? lines : spoken ? [spoken] : [];
+        const linkedPhone = shipping.linkedCallerPhone && shipping.linkedCallerPhone !== shipping.lookupPhone
+          ? ` · linked to caller ${escapeHtml(shipping.linkedCallerPhone)}`
+          : "";
+        const customer = shipping.customer?.displayName ? ` · ${escapeHtml(shipping.customer.displayName)}` : "";
+        const source = shipping.source === "spoken"
+          ? "Spoken by caller"
+          : shipping.lookupPhone
+            ? `Shopify lookup ${escapeHtml(shipping.lookupPhone)}`
+            : "Saved address";
+        const reviewNote = shipping.status === "needs-review" ? " · needs staff review" : "";
+
+        return `
+          <section class="shipping">
+            <div class="shipping-title">Shipping Address</div>
+            <p class="shipping-lines">${displayLines.length ? displayLines.map(escapeHtml).join("<br>") : "Address details unavailable"}</p>
+            <p class="shipping-meta">${source}${customer}${linkedPhone}${reviewNote}</p>
+          </section>
+        `;
+      }
+
       function renderOrders(orders) {
         if (!orders.length) {
           renderEmpty();
@@ -715,6 +791,7 @@
                   </div>
                   <div class="caller">${order.caller || "Unknown caller"}</div>
                 </div>
+                ${renderShippingAddress(order)}
                 <section class="items">
                   ${items
                     .map(

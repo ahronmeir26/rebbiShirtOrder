@@ -107,6 +107,170 @@ function toMoneyAmount(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
 
+function normalizePhoneDigits(value) {
+  return String(value || "").replace(/[^\d]/g, "");
+}
+
+function normalizePhoneForShopify(value) {
+  const digits = normalizePhoneDigits(value);
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+
+  return String(value || "").trim().startsWith("+") ? `+${digits}` : digits;
+}
+
+function normalizeCustomerAddress(address) {
+  if (!address || typeof address !== "object") {
+    return null;
+  }
+
+  const normalized = {
+    firstName: String(address.firstName || "").trim() || undefined,
+    lastName: String(address.lastName || "").trim() || undefined,
+    name: String(address.name || "").trim() || undefined,
+    company: String(address.company || "").trim() || undefined,
+    address1: String(address.address1 || "").trim() || undefined,
+    address2: String(address.address2 || "").trim() || undefined,
+    city: String(address.city || "").trim() || undefined,
+    province: String(address.province || "").trim() || undefined,
+    provinceCode: String(address.provinceCode || "").trim() || undefined,
+    country: String(address.country || "").trim() || undefined,
+    countryCode: String(address.countryCodeV2 || address.countryCode || "").trim() || undefined,
+    zip: String(address.zip || "").trim() || undefined,
+    phone: String(address.phone || "").trim() || undefined
+  };
+
+  if (!normalized.address1) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function addressToDraftOrderInput(address) {
+  const normalized = normalizeCustomerAddress(address);
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    firstName: normalized.firstName,
+    lastName: normalized.lastName,
+    company: normalized.company,
+    address1: normalized.address1,
+    address2: normalized.address2,
+    city: normalized.city,
+    province: normalized.provinceCode || normalized.province,
+    countryCode: normalized.countryCode,
+    zip: normalized.zip,
+    phone: normalized.phone
+  };
+}
+
+function formatAddressLines(address) {
+  const normalized = normalizeCustomerAddress(address);
+  if (!normalized) {
+    return [];
+  }
+
+  return [
+    normalized.name,
+    normalized.company,
+    [normalized.address1, normalized.address2].filter(Boolean).join(", "),
+    [normalized.city, normalized.provinceCode || normalized.province, normalized.zip].filter(Boolean).join(", "),
+    normalized.country
+  ].filter(Boolean);
+}
+
+function normalizeCustomerNode(node, lookupPhone) {
+  if (!node || typeof node !== "object") {
+    return null;
+  }
+
+  const addresses = Array.isArray(node.addresses) ? node.addresses.map(normalizeCustomerAddress).filter(Boolean) : [];
+  const defaultAddress = normalizeCustomerAddress(node.defaultAddress) || addresses[0] || null;
+
+  return {
+    id: String(node.id || "").trim(),
+    displayName: String(node.displayName || [node.firstName, node.lastName].filter(Boolean).join(" ") || "").trim(),
+    firstName: String(node.firstName || "").trim() || undefined,
+    lastName: String(node.lastName || "").trim() || undefined,
+    phone: String(node.defaultPhoneNumber?.phoneNumber || "").trim() || undefined,
+    lookupPhone,
+    defaultAddress,
+    addresses
+  };
+}
+
+async function findCustomerByPhone(phone) {
+  const lookupPhone = normalizePhoneForShopify(phone);
+  if (!lookupPhone) {
+    return null;
+  }
+
+  const query = `
+    query CustomerByPhone($query: String!) {
+      customers(first: 5, query: $query, sortKey: UPDATED_AT, reverse: true) {
+        nodes {
+          id
+          firstName
+          lastName
+          displayName
+          defaultPhoneNumber {
+            phoneNumber
+          }
+          defaultAddress {
+            id
+            firstName
+            lastName
+            name
+            company
+            address1
+            address2
+            city
+            province
+            provinceCode
+            country
+            countryCodeV2
+            zip
+            phone
+          }
+          addresses {
+            id
+            firstName
+            lastName
+            name
+            company
+            address1
+            address2
+            city
+            province
+            provinceCode
+            country
+            countryCodeV2
+            zip
+            phone
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, { query: `phone:${lookupPhone}` });
+  const customers = Array.isArray(data.customers?.nodes) ? data.customers.nodes : [];
+  const normalized = customers.map((node) => normalizeCustomerNode(node, lookupPhone)).filter(Boolean);
+  return normalized.find((customer) => customer.defaultAddress) || normalized[0] || null;
+}
+
 function buildLineItemInput(item) {
   const variantId = String(item.variantId || "").trim();
   if (!variantId) {
@@ -181,6 +345,10 @@ async function lookupDiscountCode(code) {
 async function createDraftOrder(orderRecord) {
   const phone = String(orderRecord.caller || "").trim();
   const discountCode = String(orderRecord.discountCode || "").trim();
+  const shippingAddress = orderRecord.shippingAddress && typeof orderRecord.shippingAddress === "object" ? orderRecord.shippingAddress : null;
+  const draftShippingAddress = addressToDraftOrderInput(shippingAddress?.address);
+  const addressLines = formatAddressLines(shippingAddress?.address);
+  const rawSpokenAddress = String(shippingAddress?.raw || "").trim();
   const lineItems = orderRecord.items.map(buildLineItemInput);
   const query = `
     mutation DraftOrderCreate($input: DraftOrderInput!) {
@@ -208,6 +376,18 @@ async function createDraftOrder(orderRecord) {
   if (discountCode) {
     customAttributes.push({ key: "ivr_discount_code", value: discountCode });
   }
+  if (shippingAddress?.lookupPhone) {
+    customAttributes.push({ key: "shipping_lookup_phone", value: String(shippingAddress.lookupPhone) });
+  }
+  if (shippingAddress?.linkedCallerPhone) {
+    customAttributes.push({ key: "shipping_linked_caller_phone", value: String(shippingAddress.linkedCallerPhone) });
+  }
+  if (shippingAddress?.source) {
+    customAttributes.push({ key: "shipping_address_source", value: String(shippingAddress.source) });
+  }
+  if (rawSpokenAddress) {
+    customAttributes.push({ key: "spoken_shipping_address", value: rawSpokenAddress.slice(0, 255) });
+  }
 
   const data = await fetchGraphqlJson(query, {
     input: {
@@ -215,6 +395,9 @@ async function createDraftOrder(orderRecord) {
       note: [
         "Created by IVR.",
         phone ? `Caller phone: ${phone}` : "",
+        shippingAddress?.lookupPhone && shippingAddress.lookupPhone !== phone ? `Shipping lookup phone: ${shippingAddress.lookupPhone}` : "",
+        addressLines.length ? `Shipping address:\n${addressLines.join("\n")}` : "",
+        rawSpokenAddress ? `Spoken shipping address: ${rawSpokenAddress}` : "",
         discountCode ? `Discount code entered: ${discountCode}` : "",
         `Shipping fee: $${SHIPPING_FEE}`
       ]
@@ -228,6 +411,7 @@ async function createDraftOrder(orderRecord) {
           currencyCode: "USD"
         }
       },
+      ...(draftShippingAddress ? { shippingAddress: draftShippingAddress } : {}),
       customAttributes,
       ...(discountCode ? { discountCodes: [discountCode] } : {})
     }
@@ -295,6 +479,10 @@ async function completeDraftOrder(draftOrderId) {
 module.exports = {
   completeDraftOrder,
   createDraftOrder,
+  findCustomerByPhone,
+  formatAddressLines,
+  normalizeCustomerAddress,
+  normalizePhoneForShopify,
   lookupDiscountCode,
   toMoneyAmount
 };

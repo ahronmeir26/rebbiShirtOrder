@@ -206,6 +206,10 @@ The IVR confirm step in this repo now creates Shopify draft orders instead of on
 
 Current implementation:
 
+- Before payment/final submission, the IVR tries to find a Shopify customer by phone using the Admin GraphQL `customers` query and the `phone:` filter, for example `query: "phone:+18005550100"`.
+- Customer lookup requests need customer read access (`read_customers`) and request `defaultPhoneNumber`, `defaultAddress`, and `addresses`.
+- If a customer with a default address is found, the caller can use it, speak a different address, or try another phone number. Another lookup phone is stored with `linkedCallerPhone` so staff can see which call-in number used it.
+- Structured Shopify customer addresses are passed into `draftOrderCreate.shippingAddress`; spoken free-form addresses are stored on the local order record and included in draft order notes/custom attributes for staff review.
 - match the IVR cart line to a cached preorder Shopify variant
 - keep `variantId`, `sku`, and Shopify `price` in the preorder cache
 - create a draft order with:

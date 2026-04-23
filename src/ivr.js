@@ -29,7 +29,10 @@ const { findMatchingPreorderSku, getPreorderCache } = require("./preorder-cache"
 const {
   completeDraftOrder,
   createDraftOrder,
+  findCustomerByPhone,
+  formatAddressLines,
   lookupDiscountCode,
+  normalizePhoneForShopify,
   toMoneyAmount
 } = require("./shopify-draft-orders");
 
@@ -333,6 +336,11 @@ function sanitizeSession(session) {
     discountCodeEntryComplete: Boolean(source.discountCodeEntryComplete),
     discountCodePromptCallSid: String(source.discountCodePromptCallSid || "").trim(),
     discountCode: source.discountCode && typeof source.discountCode === "object" ? source.discountCode : undefined,
+    shippingAddress: source.shippingAddress && typeof source.shippingAddress === "object" ? source.shippingAddress : undefined,
+    pendingShippingAddressLookup:
+      source.pendingShippingAddressLookup && typeof source.pendingShippingAddressLookup === "object"
+        ? source.pendingShippingAddressLookup
+        : undefined,
     pendingCheckout: source.pendingCheckout && typeof source.pendingCheckout === "object" ? source.pendingCheckout : undefined,
     pendingItem: source.pendingItem && typeof source.pendingItem === "object" ? source.pendingItem : undefined,
     cart: Array.isArray(source.cart) ? source.cart : []
@@ -737,6 +745,7 @@ function buildPreparedCheckout(items, session, pricing) {
     discountAmount: toMoneyAmount(pricing?.discountAmount || 0),
     currencyCode: String(pricing?.currencyCode || "USD").trim() || "USD",
     discountCode: String(session.discountCode?.code || "").trim() || undefined,
+    shippingAddress: session.shippingAddress && typeof session.shippingAddress === "object" ? session.shippingAddress : undefined,
     preparedAt: new Date().toISOString()
   };
 }
@@ -880,6 +889,7 @@ async function submitPreparedOrder({ key, form, session, preparedCheckout, shoul
     currencyCode: preparedCheckout.currencyCode,
     discountCode: preparedCheckout.discountCode,
     discountCodeLookup: session.discountCode,
+    shippingAddress: preparedCheckout.shippingAddress || session.shippingAddress,
     payment: payment && typeof payment === "object" ? payment : undefined
   };
 
@@ -1084,6 +1094,7 @@ async function resetSessionState(callSid, from) {
     lastCallSid: callKey,
     updatedAt: new Date().toISOString(),
     discountCode: existingSession?.discountCode,
+    shippingAddress: existingSession?.shippingAddress,
     cart: []
   });
 
@@ -1663,6 +1674,97 @@ function hasSavedDiscountCode(session) {
   return Boolean(String(session?.discountCode?.code || "").trim());
 }
 
+function activeCallSid(form, session) {
+  return String(form?.CallSid || session?.lastCallSid || "").trim();
+}
+
+function hasConfirmedShippingAddress(session, callSid) {
+  return Boolean(
+    (session?.shippingAddress?.address || session?.shippingAddress?.raw) &&
+      String(session.shippingAddress.confirmedCallSid || "").trim() === String(callSid || "").trim()
+  );
+}
+
+function addressLinesForRecord(record) {
+  return formatAddressLines(record?.address || record?.defaultAddress || record);
+}
+
+function addressSpeech(record) {
+  const lines = addressLinesForRecord(record);
+  return lines.length ? lines.join(", ") : String(record?.raw || "").trim();
+}
+
+function shippingAddressFromCustomer(customer, source, linkedCallerPhone) {
+  if (!customer?.defaultAddress) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  return {
+    source,
+    status: "structured",
+    lookupPhone: String(customer.lookupPhone || "").trim(),
+    linkedCallerPhone: String(linkedCallerPhone || "").trim() || undefined,
+    customer: {
+      id: customer.id,
+      displayName: customer.displayName,
+      phone: customer.phone
+    },
+    address: customer.defaultAddress,
+    updatedAt: now
+  };
+}
+
+function shippingAddressFromSpeech(rawAddress, form, session) {
+  const now = new Date().toISOString();
+  return {
+    source: "spoken",
+    status: "needs-review",
+    raw: String(rawAddress || "").trim(),
+    lookupPhone: String(session?.pendingShippingAddressLookup?.lookupPhone || session?.shippingAddress?.lookupPhone || form?.From || session?.caller || "").trim(),
+    linkedCallerPhone: String(form?.From || session?.caller || "").trim() || undefined,
+    updatedAt: now
+  };
+}
+
+function confirmShippingAddressForCall(session, callSid) {
+  if (!session.shippingAddress || typeof session.shippingAddress !== "object") {
+    return;
+  }
+
+  session.shippingAddress.confirmedCallSid = String(callSid || "").trim();
+  session.shippingAddress.confirmedAt = new Date().toISOString();
+}
+
+function normalizeAddressReviewSelection(input) {
+  return normalizeSimpleSelection(input, {
+    "1": "1",
+    one: "1",
+    yes: "1",
+    use: "1",
+    "use it": "1",
+    "2": "2",
+    two: "2",
+    different: "2",
+    change: "2",
+    "say address": "2",
+    "3": "3",
+    three: "3",
+    phone: "3",
+    "try phone": "3",
+    "another phone": "3"
+  });
+}
+
+function normalizeLookupPhoneInput(input) {
+  const digits = String(input || "").replace(/[^\d]/g, "");
+  if (digits.length === 10 || digits.length === 11) {
+    return normalizePhoneForShopify(digits);
+  }
+
+  return "";
+}
+
 function itemSpeechParts(item) {
   const parts = [
     `${item.category} ${item.style} shirt`,
@@ -1699,7 +1801,25 @@ function isDevServerBaseUrl(baseUrl) {
   return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") || baseUrl.includes("ngrok");
 }
 
-function mainMenuResponse(baseUrl) {
+function shouldAnnounceSavedCart(session) {
+  const createdAt = Date.parse(String(session?.createdAt || ""));
+  const updatedAt = Date.parse(String(session?.updatedAt || ""));
+  return Boolean(
+    session?.caller &&
+      !session?.cart?.length &&
+      !session?.pendingItem &&
+      !session?.discountCode &&
+      Number.isFinite(createdAt) &&
+      Number.isFinite(updatedAt) &&
+      createdAt === updatedAt
+  );
+}
+
+function mainMenuResponse(baseUrl, session) {
+  const savedCartPrompt = shouldAnnounceSavedCart(session)
+    ? " Your cart will be saved using your phone number."
+    : "";
+
   return twiml([
     ...(isDevServerBaseUrl(baseUrl) ? [say("Using dev server.")] : []),
     gather(baseUrl, {
@@ -1708,7 +1828,7 @@ function mainMenuResponse(baseUrl) {
       numDigits: 1,
       hints: "order shirts, cart, hours, representative",
       prompt:
-        "Welcome to Appreciation Initiative shirt ordering. Press 1 to order shirts. Press 2 to hear what is in your cart. Press 3 for store hours. Press 4 to speak with a representative."
+        `Welcome to Appreciation Initiative shirt ordering. Press 1 to order shirts. Press 2 to hear what is in your cart.${savedCartPrompt} Press 3 for store hours. Press 4 to speak with a representative.`
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, "/api/twilio/voice")
@@ -1944,6 +2064,59 @@ function discountCodeRetryResponse(baseUrl, context = "summary") {
     }),
     say("We did not receive a valid selection."),
     redirect(baseUrl, `/api/twilio/order/discount-code?context=${encodeURIComponent(context)}`)
+  ]);
+}
+
+function shippingAddressReviewResponse(baseUrl, session) {
+  const pending = session?.pendingShippingAddressLookup;
+  const hasPendingAddress = Boolean(pending?.address || pending?.raw);
+  const lookupUnavailable = pending?.lookupStatus === "error";
+  const prompt = hasPendingAddress
+    ? `I found this shipping address: ${addressSpeech(pending)}. Press 1 to use this address. Press 2 to say a different address. Press 3 to try another phone number. Press star to go back.`
+    : lookupUnavailable
+      ? "I could not look up the Shopify customer address right now. Press 1 to say the shipping address. Press 2 to try another phone number. Press star to go back."
+    : `I could not find a Shopify customer with a shipping address for that phone number. Press 1 to say the shipping address. Press 2 to try another phone number. Press star to go back.`;
+
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/address/review",
+      input: "dtmf",
+      numDigits: 1,
+      hints: "use address, say address, another phone",
+      prompt
+    }),
+    say("We did not receive a valid selection."),
+    redirect(baseUrl, "/api/twilio/order/address/review")
+  ]);
+}
+
+function shippingAddressSpeechResponse(baseUrl) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/address/spoken",
+      input: "speech",
+      hints: "street address, city, state, zip code",
+      timeout: DEFAULT_SELECTION_TIMEOUT + 3,
+      speechTimeout: "auto",
+      prompt: "Please say the full shipping address, including street address, city, state, and zip code."
+    }),
+    say("We did not hear an address."),
+    redirect(baseUrl, "/api/twilio/order/address/spoken")
+  ]);
+}
+
+function shippingAddressPhoneResponse(baseUrl) {
+  return twiml([
+    gather(baseUrl, {
+      action: "/api/twilio/order/address/phone",
+      input: "dtmf",
+      finishOnKey: "#",
+      timeout: DEFAULT_SELECTION_TIMEOUT + 2,
+      hints: "phone number",
+      prompt: "Enter the 10 digit phone number to search in Shopify, then press pound. Press star to go back."
+    }),
+    say("We did not receive a phone number."),
+    redirect(baseUrl, "/api/twilio/order/address/phone")
   ]);
 }
 
@@ -2272,8 +2445,8 @@ async function authorizeRequest(req, res, pathname) {
 
 async function handleVoiceWebhook(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  await getSession(form.CallSid, form.From);
-  xml(res, 200, mainMenuResponse(baseUrl));
+  const { session } = await getSession(form.CallSid, form.From);
+  xml(res, 200, mainMenuResponse(baseUrl, session));
 }
 
 async function handleMainMenu(req, res, baseUrl) {
@@ -2281,7 +2454,7 @@ async function handleMainMenu(req, res, baseUrl) {
   const { session } = await getSession(form.CallSid, form.From);
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, mainMenuResponse(baseUrl));
+    xml(res, 200, mainMenuResponse(baseUrl, session));
     return;
   }
 
@@ -2351,7 +2524,7 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
   const spoken = String(form.SpeechResult || form.Digits || "").trim();
 
   if (wantsPreviousMenu(form) || spoken.toLowerCase() === "star") {
-    xml(res, 200, context === "order-start" ? mainMenuResponse(baseUrl) : postAddMenuResponse(baseUrl, session));
+    xml(res, 200, context === "order-start" ? mainMenuResponse(baseUrl, session) : postAddMenuResponse(baseUrl, session));
     return;
   }
 
@@ -2437,7 +2610,7 @@ async function handleDiscountCodeReview(req, res, baseUrl) {
   const context = current.searchParams.get("context") === "order-start" ? "order-start" : "summary";
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, context === "order-start" ? mainMenuResponse(baseUrl) : postAddMenuResponse(baseUrl, session));
+    xml(res, 200, context === "order-start" ? mainMenuResponse(baseUrl, session) : postAddMenuResponse(baseUrl, session));
     return;
   }
 
@@ -2460,6 +2633,171 @@ async function handleDiscountCodeReview(req, res, baseUrl) {
     200,
     invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", `/api/twilio/order/discount-code?context=${encodeURIComponent(context)}`)
   );
+}
+
+async function lookupShippingAddressForPhone(phone, linkedCallerPhone) {
+  const lookupPhone = normalizePhoneForShopify(phone);
+  if (!lookupPhone) {
+    return {
+      status: "invalid-phone",
+      lookupPhone: "",
+      linkedCallerPhone: String(linkedCallerPhone || "").trim() || undefined,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  try {
+    const customer = await findCustomerByPhone(lookupPhone);
+    const shippingAddress = shippingAddressFromCustomer(customer, "shopify-phone", linkedCallerPhone);
+    if (shippingAddress) {
+      return {
+        ...shippingAddress,
+        lookupStatus: "found"
+      };
+    }
+
+    return {
+      status: "not-found",
+      lookupStatus: "not-found",
+      lookupPhone,
+      linkedCallerPhone: String(linkedCallerPhone || "").trim() || undefined,
+      customer: customer
+        ? {
+            id: customer.id,
+            displayName: customer.displayName,
+            phone: customer.phone
+          }
+        : undefined,
+      updatedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    return {
+      status: "lookup-error",
+      lookupStatus: "error",
+      lookupPhone,
+      linkedCallerPhone: String(linkedCallerPhone || "").trim() || undefined,
+      error: String(error?.message || "").slice(0, 240),
+      updatedAt: new Date().toISOString()
+    };
+  }
+}
+
+async function handleShippingAddressStart(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { key, session } = await getSession(form.CallSid, form.From);
+  const callSid = activeCallSid(form, session);
+
+  if (hasConfirmedShippingAddress(session, callSid)) {
+    xml(res, 200, twiml([redirect(baseUrl, "/api/twilio/order/finalize")]));
+    return;
+  }
+
+  if (session.shippingAddress?.address || session.shippingAddress?.raw) {
+    session.pendingShippingAddressLookup = {
+      ...session.shippingAddress,
+      lookupStatus: "saved"
+    };
+    await persistSessionState(key, session);
+    xml(res, 200, shippingAddressReviewResponse(baseUrl, session));
+    return;
+  }
+
+  session.pendingShippingAddressLookup = await lookupShippingAddressForPhone(form.From || session.caller, form.From || session.caller);
+  await persistSessionState(key, session);
+  xml(res, 200, shippingAddressReviewResponse(baseUrl, session));
+}
+
+async function handleShippingAddressReview(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { key, session } = await getSession(form.CallSid, form.From);
+  const selection = normalizeAddressReviewSelection(form.Digits || form.SpeechResult);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, postAddMenuResponse(baseUrl, session));
+    return;
+  }
+
+  if (isRepeatPromptSubmission(form)) {
+    xml(res, 200, shippingAddressReviewResponse(baseUrl, session));
+    return;
+  }
+
+  if (selection === "1") {
+    if (session.pendingShippingAddressLookup?.address || session.pendingShippingAddressLookup?.raw) {
+      session.shippingAddress = {
+        ...session.pendingShippingAddressLookup,
+        source: session.pendingShippingAddressLookup.source || "shopify-phone",
+        status: session.pendingShippingAddressLookup.raw ? "needs-review" : "structured"
+      };
+      confirmShippingAddressForCall(session, activeCallSid(form, session));
+      delete session.pendingShippingAddressLookup;
+      await persistSessionState(key, session);
+      xml(res, 200, twiml([say("Shipping address saved."), redirect(baseUrl, "/api/twilio/order/finalize")]));
+      return;
+    }
+
+    xml(res, 200, shippingAddressSpeechResponse(baseUrl));
+    return;
+  }
+
+  if (selection === "2") {
+    if (session.pendingShippingAddressLookup?.address || session.pendingShippingAddressLookup?.raw) {
+      xml(res, 200, shippingAddressSpeechResponse(baseUrl));
+      return;
+    }
+
+    xml(res, 200, shippingAddressPhoneResponse(baseUrl));
+    return;
+  }
+
+  if (selection === "3" && (session.pendingShippingAddressLookup?.address || session.pendingShippingAddressLookup?.raw)) {
+    xml(res, 200, shippingAddressPhoneResponse(baseUrl));
+    return;
+  }
+
+  xml(res, 200, twiml([say("Invalid entry. Try again."), twimlBody(shippingAddressReviewResponse(baseUrl, session))]));
+}
+
+async function handleShippingAddressSpoken(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { key, session } = await getSession(form.CallSid, form.From);
+  const spoken = String(form.SpeechResult || form.Digits || "").trim();
+
+  if (!spoken) {
+    xml(res, 200, shippingAddressSpeechResponse(baseUrl));
+    return;
+  }
+
+  session.shippingAddress = shippingAddressFromSpeech(spoken, form, session);
+  confirmShippingAddressForCall(session, activeCallSid(form, session));
+  delete session.pendingShippingAddressLookup;
+  await persistSessionState(key, session);
+  xml(res, 200, twiml([say("Shipping address saved. We will include it for staff review."), redirect(baseUrl, "/api/twilio/order/finalize")]));
+}
+
+async function handleShippingAddressPhone(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { key, session } = await getSession(form.CallSid, form.From);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, shippingAddressReviewResponse(baseUrl, session));
+    return;
+  }
+
+  if (isRepeatPromptSubmission(form)) {
+    xml(res, 200, shippingAddressPhoneResponse(baseUrl));
+    return;
+  }
+
+  const lookupPhone = normalizeLookupPhoneInput(form.Digits || form.SpeechResult);
+  if (!lookupPhone) {
+    xml(res, 200, twiml([say("Please enter a 10 digit phone number."), twimlBody(shippingAddressPhoneResponse(baseUrl))]));
+    return;
+  }
+
+  session.pendingShippingAddressLookup = await lookupShippingAddressForPhone(lookupPhone, form.From || session.caller);
+  await persistSessionState(key, session);
+  xml(res, 200, shippingAddressReviewResponse(baseUrl, session));
 }
 
 async function handleCallerDiscountCodes(_req, res) {
@@ -2693,7 +3031,7 @@ async function handleCategorySelection(req, res, baseUrl) {
   if (wantsPreviousMenu(form)) {
     delete session.pendingItem;
     await persistSessionState(key, session);
-    xml(res, 200, mainMenuResponse(baseUrl));
+    xml(res, 200, mainMenuResponse(baseUrl, session));
     return;
   }
 
@@ -3292,6 +3630,12 @@ async function handleFinalizeOrder(req, res, baseUrl) {
     return;
   }
 
+  if (!hasConfirmedShippingAddress(session, activeCallSid(form, session))) {
+    await persistSessionState(key, session);
+    xml(res, 200, twiml([redirect(baseUrl, "/api/twilio/order/address/start")]));
+    return;
+  }
+
   const subtotalPrice = hydratedItems.reduce((sum, item) => sum + calculateLineTotal(item), 0);
   const preparedCheckout = buildPreparedCheckout(hydratedItems, session, {
     totalPrice: calculateOrderTotal(hydratedItems),
@@ -3523,6 +3867,22 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "POST" && pathname === "/api/twilio/order/discount-code/review") {
     return handleDiscountCodeReview(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/address/start") {
+    return handleShippingAddressStart(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/address/review") {
+    return handleShippingAddressReview(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/address/spoken") {
+    return handleShippingAddressSpoken(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/address/phone") {
+    return handleShippingAddressPhone(req, res, baseUrl);
   }
 
   if (req.method === "POST" && pathname === "/api/twilio/order/finalize") {
