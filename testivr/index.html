@@ -427,6 +427,25 @@
         }
 
         const lines = directChildTexts(response, "Say");
+        const payNode = Array.from(response.children).find((child) => child.tagName === "Pay");
+        if (payNode) {
+          return {
+            lines,
+            action: "",
+            redirect: "",
+            timeout: 0,
+            input: "dtmf",
+            numDigits: 0,
+            finishOnKey: "#",
+            hangup: false,
+            pay: {
+              action: normalizeUrl(payNode.getAttribute("action") || nextAction),
+              amount: (payNode.getAttribute("chargeAmount") || "").trim(),
+              connector: (payNode.getAttribute("paymentConnector") || "").trim()
+            }
+          };
+        }
+
         const redirectNode = Array.from(response.children).find((child) => child.tagName === "Redirect");
         const hangupNode = Array.from(response.children).find((child) => child.tagName === "Hangup");
         return {
@@ -449,6 +468,13 @@
         }
         if (payload.speech !== undefined && payload.speech !== "") {
           body.set("SpeechResult", payload.speech);
+        }
+        if (payload.fields && typeof payload.fields === "object") {
+          Object.entries(payload.fields).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== "") {
+              body.set(key, String(value));
+            }
+          });
         }
 
         const response = await fetch(url, {
@@ -473,6 +499,24 @@
         dtmfBuffer = "";
         manualInputEl.value = "";
         cancelDtmfSubmitTimer();
+        if (parsed.pay) {
+          awaitingInput = false;
+          setStatus(`Simulating Twilio Pay via ${parsed.pay.connector || "payment connector"}...`);
+          addMessage("assistant", `Test IVR auto-simulated payment success for $${parsed.pay.amount || "0.00"}.`);
+          autoTimer = setTimeout(() => {
+            postToIvr(parsed.pay.action, {
+              fields: {
+                Result: "success",
+                PaymentConfirmationCode: `TEST-${Date.now()}`,
+                PaymentMethod: "credit-card",
+                PaymentCardType: "visa",
+                PaymentCardNumber: "XXXXXXXXXXXX4242",
+                ExpirationDate: "01/30"
+              }
+            });
+          }, 250);
+          return;
+        }
         if (parsed.hangup) {
           awaitingInput = false;
           nextAction = appUrl("/api/twilio/menu");

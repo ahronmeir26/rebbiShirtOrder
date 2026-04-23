@@ -14,16 +14,22 @@ const {
 } = require("./order-store");
 const {
   appendSetCookieHeader,
+  authConfig,
   buildAdminSessionCookie,
   buildClearedAdminSessionCookie,
   buildMountedPath,
   isAdminAuthConfigured,
   isAdminAuthenticated,
   sanitizeNextPath,
-  verifyAdminPassword
+  verifyAdminCredentials
 } = require("./admin-auth");
 const { findMatchingPreorderSku, getPreorderCache } = require("./preorder-cache");
-const { completeDraftOrder, createDraftOrder, lookupDiscountCode, toMoneyAmount } = require("./shopify-draft-orders");
+const {
+  completeDraftOrder,
+  createDraftOrder,
+  lookupDiscountCode,
+  toMoneyAmount
+} = require("./shopify-draft-orders");
 
 const dashboardFile = path.join(__dirname, "..", "index.html");
 const testIvrFile = path.join(__dirname, "..", "testivr", "index.html");
@@ -37,6 +43,7 @@ const UNIT_PRICE_BY_CATEGORY = {
 };
 const SHIPPING_FEE = 10;
 const DEFAULT_SUBMIT_SHOPIFY_ORDER = /^(1|true|yes|on)$/i.test(String(process.env.SHOPIFY_SUBMIT_SHOPIFY_ORDER || "").trim());
+const DEFAULT_TWILIO_PAY_CONNECTOR = String(process.env.TWILIO_PAY_CONNECTOR || "Stripe_Connector").trim() || "Stripe_Connector";
 
 const categories = {
   1: { id: "mens", name: "mens" },
@@ -319,6 +326,7 @@ function sanitizeSession(session) {
     caller: String(source.caller || "").trim(),
     lastCallSid: String(source.lastCallSid || "").trim(),
     discountCode: source.discountCode && typeof source.discountCode === "object" ? source.discountCode : undefined,
+    pendingCheckout: source.pendingCheckout && typeof source.pendingCheckout === "object" ? source.pendingCheckout : undefined,
     pendingItem: source.pendingItem && typeof source.pendingItem === "object" ? source.pendingItem : undefined,
     cart: Array.isArray(source.cart) ? source.cart : []
   };
@@ -416,6 +424,28 @@ function redirect(baseUrl, routePath) {
 
 function hangup() {
   return "<Hangup/>";
+}
+
+function pay(baseUrl, { action, amount, paymentConnector, description, statusCallback }) {
+  const attrs = [
+    `action="${escapeXml(buildTwilioRouteUrl(baseUrl, action))}"`,
+    `chargeAmount="${escapeXml(formatChargeAmount(amount))}"`,
+    'currency="usd"',
+    'paymentMethod="credit-card"',
+    'input="dtmf"',
+    `paymentConnector="${escapeXml(paymentConnector || DEFAULT_TWILIO_PAY_CONNECTOR)}"`,
+    'maxAttempts="3"'
+  ];
+
+  if (description) {
+    attrs.push(`description="${escapeXml(description)}"`);
+  }
+
+  if (statusCallback) {
+    attrs.push(`statusCallback="${escapeXml(buildTwilioRouteUrl(baseUrl, statusCallback))}"`);
+  }
+
+  return `<Pay ${attrs.join(" ")} />`;
 }
 
 function pause(length = 1) {
@@ -567,55 +597,78 @@ function sessionKeyForCaller(callSid, from) {
   return callSid || `local-${Date.now()}`;
 }
 
+async function loadPreferredSessionRecord(sessionKey) {
+  if (!sessionKey) {
+    return null;
+  }
+
+  return pickPreferredSession(await loadSession(sessionKey), sessions.get(sessionKey));
+}
+
 async function getSession(callSid, from) {
-  const directKey = sessionKeyForCaller(callSid, from);
+  const caller = String(from || "").trim();
+  const normalizedCallSid = String(callSid || "").trim();
+  const directKey = sessionKeyForCaller(normalizedCallSid, caller);
   let key = directKey;
 
-  if (callSid && String(from || "").trim()) {
-    callSidSessionKeys.set(callSid, key);
+  if (normalizedCallSid && caller) {
+    callSidSessionKeys.set(normalizedCallSid, key);
   }
 
   // Rehydrate from persistent storage on every request so warm Vercel instances do not serve stale cart state.
-  let stored = pickPreferredSession(await loadSession(key), sessions.get(key));
+  // Prefer the freshest record across the canonical key and the current call key so an older empty
+  // phone session does not override a newer in-progress call session on Vercel.
+  let stored = await loadPreferredSessionRecord(key);
+  const storedByCall = await loadPreferredSessionRecord(normalizedCallSid);
+
+  if (caller) {
+    stored = pickPreferredSession(stored, storedByCall);
+    if (storedByCall) {
+      key = `phone:${caller}`;
+    }
+  } else if (storedByCall) {
+    stored = storedByCall;
+    key = storedByCall.caller ? `phone:${String(storedByCall.caller).trim()}` : normalizedCallSid;
+  }
+
   let hasPrimarySession = stored && typeof stored === "object";
 
   // An empty cart is valid state. Only fall back when the primary session record is actually missing.
-  if (!hasPrimarySession && String(from || "").trim()) {
-    const storedByCaller = await findSessionByCaller(String(from).trim());
+  if (!hasPrimarySession && caller) {
+    const storedByCaller = await findSessionByCaller(caller);
     if (storedByCaller) {
       stored = storedByCaller;
-      key = `phone:${String(from).trim()}`;
+      key = `phone:${caller}`;
       hasPrimarySession = true;
     }
   }
 
-  if (!stored && callSid && String(from || "").trim()) {
-    const legacyByCall = pickPreferredSession(await loadSession(callSid), sessions.get(callSid));
+  if (!stored && normalizedCallSid && caller) {
+    const legacyByCall = storedByCall;
     if (legacyByCall && Array.isArray(legacyByCall.cart) && legacyByCall.cart.length) {
       stored = legacyByCall;
-      key = `phone:${String(from).trim()}`;
+      key = `phone:${caller}`;
     }
   }
 
-  if (!stored && callSid && !String(from || "").trim()) {
-    const storedByCall = (await loadSession(callSid)) || sessions.get(callSid);
+  if (!stored && normalizedCallSid && !caller) {
     if (storedByCall) {
       stored = storedByCall;
       if (storedByCall.caller) {
         key = `phone:${String(storedByCall.caller).trim()}`;
       } else {
-        key = callSid;
+        key = normalizedCallSid;
       }
     }
   }
 
   const normalized = sanitizeSession(stored);
-  if (String(from || "").trim()) {
-    normalized.caller = String(from).trim();
+  if (caller) {
+    normalized.caller = caller;
   }
-  if (callSid) {
-    normalized.lastCallSid = String(callSid).trim();
-    callSidSessionKeys.set(callSid, key);
+  if (normalizedCallSid) {
+    normalized.lastCallSid = normalizedCallSid;
+    callSidSessionKeys.set(normalizedCallSid, key);
   }
   sessions.set(key, normalized);
 
@@ -653,6 +706,132 @@ function calculateLineTotal(item) {
 function calculateOrderTotal(items) {
   const subtotal = items.reduce((sum, item) => sum + calculateLineTotal(item), 0);
   return subtotal + (items.length ? SHIPPING_FEE : 0);
+}
+
+function formatChargeAmount(value) {
+  return toMoneyAmount(value).toFixed(2);
+}
+
+function buildPreparedCheckout(items, session, pricing) {
+  return {
+    items: items.map(normalizeStoredItem),
+    totalQuantity: cartQuantity(items),
+    preDiscountTotalPrice: calculateOrderTotal(items),
+    totalPrice: toMoneyAmount(pricing?.totalPrice || 0),
+    subtotalPrice: toMoneyAmount(pricing?.subtotalPrice || 0),
+    shippingPrice: toMoneyAmount(pricing?.shippingPrice || SHIPPING_FEE),
+    discountAmount: toMoneyAmount(pricing?.discountAmount || 0),
+    currencyCode: String(pricing?.currencyCode || "USD").trim() || "USD",
+    discountCode: String(session.discountCode?.code || "").trim() || undefined,
+    preparedAt: new Date().toISOString()
+  };
+}
+
+function paymentPromptResponse(baseUrl, preparedCheckout) {
+  const chargeAmount = formatChargeAmount(preparedCheckout.totalPrice);
+  return twiml([
+    say(`We will now collect your payment of ${chargeAmount} dollars.`),
+    pay(baseUrl, {
+      action: "/api/twilio/order/payment/complete",
+      amount: preparedCheckout.totalPrice,
+      paymentConnector: DEFAULT_TWILIO_PAY_CONNECTOR,
+      description: `Rebbi Shirt Order ${preparedCheckout.totalQuantity} item${preparedCheckout.totalQuantity === 1 ? "" : "s"}`,
+      statusCallback: "/api/twilio/order/payment/status"
+    })
+  ]);
+}
+
+function buildPaymentSummary(form, preparedCheckout) {
+  return {
+    result: String(form.Result || "").trim() || "unknown",
+    amount: toMoneyAmount(preparedCheckout?.totalPrice || 0),
+    currency: String(preparedCheckout?.currencyCode || "USD").trim() || "USD",
+    connector: DEFAULT_TWILIO_PAY_CONNECTOR,
+    confirmationCode: String(form.PaymentConfirmationCode || "").trim() || undefined,
+    method: String(form.PaymentMethod || "").trim() || "credit-card",
+    cardType: String(form.PaymentCardType || "").trim() || undefined,
+    cardNumber: String(form.PaymentCardNumber || "").trim() || undefined,
+    expirationDate: String(form.ExpirationDate || "").trim() || undefined
+  };
+}
+
+async function submitPreparedOrder({ key, form, session, preparedCheckout, shouldSubmitShopifyOrder, payment }) {
+  const orderRecord = {
+    id: `${key}-${Date.now()}`,
+    callSid: form.CallSid || key,
+    caller: form.From || session.caller || "unknown",
+    createdAt: new Date().toISOString(),
+    items: preparedCheckout.items,
+    totalQuantity: preparedCheckout.totalQuantity,
+    totalPrice: preparedCheckout.totalPrice,
+    subtotalPrice: preparedCheckout.subtotalPrice,
+    preDiscountTotalPrice: preparedCheckout.preDiscountTotalPrice,
+    shippingPrice: preparedCheckout.shippingPrice,
+    discountAmount: preparedCheckout.discountAmount,
+    currencyCode: preparedCheckout.currencyCode,
+    discountCode: preparedCheckout.discountCode,
+    discountCodeLookup: session.discountCode,
+    payment: payment && typeof payment === "object" ? payment : undefined
+  };
+
+  await saveOrder(orderRecord);
+
+  let draftOrder;
+  try {
+    draftOrder = await createDraftOrder(orderRecord);
+    orderRecord.shopifyDraftOrder = {
+      id: draftOrder.id,
+      name: draftOrder.name,
+      invoiceUrl: draftOrder.invoiceUrl,
+      status: draftOrder.status
+    };
+    await saveOrder(orderRecord);
+  } catch (error) {
+    orderRecord.shopifyDraftOrderError = String(error?.message || "").trim() || "Unknown Shopify draft order error.";
+    await saveOrder(orderRecord);
+    return {
+      ok: false,
+      orderRecord,
+      message: payment?.confirmationCode
+        ? "Your payment was approved, but we could not create your Shopify draft order. Please contact the store so we can finish the order."
+        : "We could not create your draft order right now. Please try again in a few minutes."
+    };
+  }
+
+  if (shouldSubmitShopifyOrder) {
+    try {
+      const completedDraft = await completeDraftOrder(draftOrder.id);
+      orderRecord.shopifyDraftOrder = {
+        ...orderRecord.shopifyDraftOrder,
+        status: completedDraft.status
+      };
+      orderRecord.shopifyOrder = {
+        id: completedDraft.order.id,
+        name: completedDraft.order.name,
+        financialStatus: completedDraft.order.displayFinancialStatus,
+        fulfillmentStatus: completedDraft.order.displayFulfillmentStatus
+      };
+    } catch (error) {
+      orderRecord.shopifyOrderError = String(error?.message || "").trim() || "Unknown Shopify order completion error.";
+      await saveOrder(orderRecord);
+      return {
+        ok: false,
+        orderRecord,
+        message: payment?.confirmationCode
+          ? "Your payment was approved, but we could not finish the Shopify order right now. Please contact the store so we can complete it."
+          : "Your draft order was created, but we could not submit the order right now. Please try again in a few minutes."
+      };
+    }
+  }
+
+  await saveOrder(orderRecord);
+  return {
+    ok: true,
+    orderRecord,
+    message: shouldSubmitShopifyOrder
+      ? "Thank you. Your payment was received and your shirt order has been created."
+      : "Thank you. Your payment was received and your shirt draft order has been created."
+  };
 }
 
 function normalizeRuntimeConfig(config) {
@@ -1059,9 +1238,11 @@ function shouldEnforceAdminAuth(pathname) {
   return isAdminPagePath(pathname) || isProtectedAdminApiPath(pathname);
 }
 
-function renderLoginPage({ error = "", nextPath = "/", logout = false } = {}) {
+function renderLoginPage({ error = "", nextPath = "/", logout = false, username = "" } = {}) {
+  const configuredUsername = escapeXml(authConfig().username);
   const safeMessage = escapeXml(error);
   const safeNextPath = escapeXml(sanitizeNextPath(nextPath, "/"));
+  const safeUsername = escapeXml(String(username || "").trim());
   const notice = logout ? "<p class=\"notice\">You have been signed out.</p>" : "";
   const errorMarkup = safeMessage ? `<p class="error">${safeMessage}</p>` : "";
 
@@ -1161,13 +1342,15 @@ function renderLoginPage({ error = "", nextPath = "/", logout = false } = {}) {
   <body>
     <main class="card">
       <h1>Admin Login</h1>
-      <p>Sign in to access the order dashboard, IVR test page, and transfer tools.</p>
+      <p>Sign in as <strong>${configuredUsername}</strong> to access the order dashboard, IVR test page, and transfer tools.</p>
       ${notice}
       ${errorMarkup}
       <form method="POST" action="/login" autocomplete="off">
         <input type="hidden" name="next" value="${safeNextPath}" />
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" value="${safeUsername}" autocomplete="username" required />
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" required autofocus />
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
         <button type="submit">Sign In</button>
       </form>
       <p class="footnote">This session uses an HttpOnly signed cookie and expires automatically.</p>
@@ -1845,8 +2028,9 @@ async function handleLoginSubmit(req, res) {
   }
 
   const nextPath = sanitizeNextPath(form.next, "/");
+  const username = String(form.username || "").trim();
   const password = String(form.password || "");
-  if (!verifyAdminPassword(password)) {
+  if (!verifyAdminCredentials(username, password)) {
     await sleep(450);
     htmlWithHeaders(
       res,
@@ -1857,7 +2041,7 @@ async function handleLoginSubmit(req, res) {
         "Referrer-Policy": "same-origin",
         "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'; frame-ancestors 'none'"
       },
-      renderLoginPage({ error: "Invalid password.", nextPath })
+      renderLoginPage({ error: "Invalid username or password.", nextPath, username })
     );
     return;
   }
@@ -2760,91 +2944,98 @@ async function handleFinalizeOrder(req, res, baseUrl) {
     return;
   }
 
-  const orderRecord = {
-      id: `${key}-${Date.now()}`,
-      callSid: form.CallSid || key,
-      caller: form.From || "unknown",
-      createdAt: new Date().toISOString(),
-      items: hydratedItems,
-      totalQuantity: cartQuantity(hydratedItems),
-      totalPrice: calculateOrderTotal(hydratedItems),
-      discountCode: String(session.discountCode?.code || "").trim() || undefined,
-      discountCodeLookup: session.discountCode
-    };
+  const subtotalPrice = hydratedItems.reduce((sum, item) => sum + calculateLineTotal(item), 0);
+  const preparedCheckout = buildPreparedCheckout(hydratedItems, session, {
+    totalPrice: calculateOrderTotal(hydratedItems),
+    subtotalPrice,
+    shippingPrice: hydratedItems.length ? SHIPPING_FEE : 0,
+    discountAmount: 0,
+    currencyCode: "USD"
+  });
 
-  let draftOrder;
-  try {
-    draftOrder = await createDraftOrder(orderRecord);
-    orderRecord.shopifyDraftOrder = {
-      id: draftOrder.id,
-      name: draftOrder.name,
-      invoiceUrl: draftOrder.invoiceUrl,
-      status: draftOrder.status
-    };
-    await saveOrder(orderRecord);
-  } catch (error) {
-    const detail = String(error?.message || "").trim();
+  session.pendingCheckout = {
+    ...preparedCheckout,
+    shouldSubmitShopifyOrder
+  };
+  await persistSessionState(key, session);
+
+  if (preparedCheckout.totalPrice <= 0) {
+    const result = await submitPreparedOrder({
+      key,
+      form,
+      session,
+      preparedCheckout,
+      shouldSubmitShopifyOrder,
+      payment: {
+        result: "skipped",
+        reason: "zero-total",
+        amount: 0,
+        currency: preparedCheckout.currencyCode,
+        connector: DEFAULT_TWILIO_PAY_CONNECTOR
+      }
+    });
+    await resetSessionState(form.CallSid || key, form.From);
+    xml(res, 200, twiml([say(result.message), hangup()]));
+    return;
+  }
+
+  xml(res, 200, paymentPromptResponse(baseUrl, preparedCheckout));
+}
+
+async function handlePaymentStatus(req, res) {
+  const form = await parseFormBody(req);
+  logTwilioDebug("payment-status", {
+    CallSid: form.CallSid,
+    PaymentConfirmationCode: form.PaymentConfirmationCode,
+    PaymentError: form.PaymentError,
+    PaymentErrorCode: form.PaymentErrorCode,
+    Result: form.Result
+  });
+  res.writeHead(204);
+  res.end();
+}
+
+async function handlePaymentComplete(req, res, baseUrl) {
+  const form = await parseFormBody(req);
+  const { key, session } = await getSession(form.CallSid, form.From);
+  const preparedCheckout = session.pendingCheckout;
+
+  if (!preparedCheckout || !Array.isArray(preparedCheckout.items) || !preparedCheckout.items.length) {
     xml(
       res,
       200,
       twiml([
-        say(
-          detail
-            ? `We could not create your draft order right now. ${detail}.`
-            : "We could not create your draft order right now. Please try again in a few minutes."
-        ),
+        say("We could not find a pending payment for this call. Please review your cart and try again."),
         redirect(baseUrl, "/api/twilio/order/summary")
       ])
     );
     return;
   }
 
-  if (shouldSubmitShopifyOrder) {
-    try {
-      const completedDraft = await completeDraftOrder(draftOrder.id);
-      orderRecord.shopifyDraftOrder = {
-        ...orderRecord.shopifyDraftOrder,
-        status: completedDraft.status
-      };
-      orderRecord.shopifyOrder = {
-        id: completedDraft.order.id,
-        name: completedDraft.order.name,
-        financialStatus: completedDraft.order.displayFinancialStatus,
-        fulfillmentStatus: completedDraft.order.displayFulfillmentStatus
-      };
-    } catch (error) {
-      const detail = String(error?.message || "").trim();
-      xml(
-        res,
-        200,
-        twiml([
-          say(
-            detail
-              ? `Your draft order was created, but we could not submit the order right now. ${detail}.`
-              : "Your draft order was created, but we could not submit the order right now. Please try again in a few minutes."
-          ),
-          redirect(baseUrl, "/api/twilio/order/summary")
-        ])
-      );
-      return;
-    }
+  if (String(form.Result || "").trim().toLowerCase() !== "success") {
+    await persistSessionState(key, session);
+    xml(
+      res,
+      200,
+      twiml([
+        say("Your card was not approved. Please enter it again."),
+        twimlBody(paymentPromptResponse(baseUrl, preparedCheckout))
+      ])
+    );
+    return;
   }
 
-  await saveOrder(orderRecord);
+  const result = await submitPreparedOrder({
+    key,
+    form,
+    session,
+    preparedCheckout,
+    shouldSubmitShopifyOrder: Boolean(preparedCheckout.shouldSubmitShopifyOrder),
+    payment: buildPaymentSummary(form, preparedCheckout)
+  });
 
   await resetSessionState(form.CallSid || key, form.From);
-  xml(
-    res,
-    200,
-    twiml([
-      say(
-        shouldSubmitShopifyOrder
-          ? "Thank you. Your shirt order has been created."
-          : "Thank you. Your shirt draft order has been created."
-      ),
-      hangup()
-    ])
-  );
+  xml(res, 200, twiml([say(result.message), hangup()]));
 }
 
 async function routeRequest(req, res, pathname, baseUrl) {
@@ -2983,6 +3174,14 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "POST" && pathname === "/api/twilio/order/finalize") {
     return handleFinalizeOrder(req, res, baseUrl);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/payment/status") {
+    return handlePaymentStatus(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/api/twilio/order/payment/complete") {
+    return handlePaymentComplete(req, res, baseUrl);
   }
 
   if (req.method === "POST" && pathname === "/api/twilio/cart/play") {

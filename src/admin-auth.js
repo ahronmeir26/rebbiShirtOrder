@@ -6,6 +6,7 @@ const ROUTE_PREFIXES = ["/rso"];
 
 function authConfig() {
   return {
+    username: String(process.env.ADMIN_USERNAME || "admin").trim() || "admin",
     passwordHash: String(process.env.ADMIN_PASSWORD_HASH || "").trim(),
     sessionSecret: String(process.env.ADMIN_SESSION_SECRET || "").trim(),
     sessionTtlMs: Math.max(5 * 60 * 1000, Number(process.env.ADMIN_SESSION_TTL_MS || DEFAULT_SESSION_TTL_MS) || DEFAULT_SESSION_TTL_MS)
@@ -123,7 +124,7 @@ function buildAdminSessionToken() {
   const config = authConfig();
   const payload = Buffer.from(
     JSON.stringify({
-      sub: "admin",
+      sub: config.username,
       exp: Date.now() + config.sessionTtlMs,
       nonce: crypto.randomUUID(),
       v: passwordHashFingerprint(config.passwordHash)
@@ -159,7 +160,7 @@ function verifyAdminSessionCookieValue(cookieValue) {
 
   try {
     const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    if (decoded.sub !== "admin") {
+    if (!safeCompareText(String(decoded.sub || ""), config.username)) {
       return false;
     }
 
@@ -231,6 +232,11 @@ function verifyAdminPassword(password) {
   }
 }
 
+function verifyAdminCredentials(username, password) {
+  const config = authConfig();
+  return safeCompareText(String(username || "").trim(), config.username) && verifyAdminPassword(password);
+}
+
 module.exports = {
   ADMIN_COOKIE_NAME,
   appendSetCookieHeader,
@@ -242,6 +248,7 @@ module.exports = {
   isAdminAuthenticated,
   parseCookieHeader,
   sanitizeNextPath,
+  verifyAdminCredentials,
   verifyAdminPassword,
   verifyAdminSessionCookieValue
 };
