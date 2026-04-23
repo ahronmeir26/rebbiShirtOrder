@@ -6,7 +6,7 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 
 ## IVR flow
 
-- Each new call starts with mandatory numeric discount-code entry, then the main menu lets callers order shirts, hear the cart, hear store hours, or transfer to a representative.
+- After callers press 1 to order shirts, the IVR asks for a numeric coupon code unless one is already saved for that phone number.
 - Shirt ordering walks through category, style, size, sleeve length, fit, pocket, cuff, and quantity.
 - After each item is added, the caller can add another shirt, hear the cart again, review the discount code, or place the order.
 - The cart is read back over the phone with quantities and shirt attributes, and callers can change quantity or delete items during playback.
@@ -32,6 +32,8 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 - `POST /api/twilio/cart/play`
 - `POST /api/twilio/cart/control`
 - `POST /api/twilio/cart/quantity`
+- `GET /api/admin/caller-discounts`
+- `POST /api/admin/caller-discounts/clear`
 - `GET /`
 - `GET /api/health`
 - `GET /api/orders`

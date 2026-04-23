@@ -145,6 +145,27 @@ async function deleteSessionsByCaller(caller) {
   deleteSessionsByCallerInFile(normalizedCaller);
 }
 
+async function listSavedDiscountCodes() {
+  if (canUseBlobStore()) {
+    return listSavedDiscountCodesFromBlob();
+  }
+
+  return listSavedDiscountCodesFromFile();
+}
+
+async function clearDiscountCodeByCaller(caller) {
+  const normalizedCaller = String(caller || "").trim();
+  if (!normalizedCaller) {
+    return false;
+  }
+
+  if (canUseBlobStore()) {
+    return clearDiscountCodeByCallerInBlob(normalizedCaller);
+  }
+
+  return clearDiscountCodeByCallerInFile(normalizedCaller);
+}
+
 async function loadAppConfig() {
   if (canUseBlobStore()) {
     return loadAppConfigFromBlob();
@@ -261,6 +282,83 @@ function deleteSessionsByCallerInFile(caller) {
     }
   }
   writeSessionsToFile(sessions);
+}
+
+function discountCodeSummary(sessionRecord) {
+  const code = String(sessionRecord?.discountCode?.code || "").trim();
+  if (!code) {
+    return null;
+  }
+
+  return {
+    caller: String(sessionRecord?.caller || "").trim(),
+    code,
+    verified: Boolean(sessionRecord?.discountCode?.verified),
+    updatedAt: String(sessionRecord?.updatedAt || sessionRecord?.createdAt || "").trim()
+  };
+}
+
+function sortSavedDiscountCodes(entries) {
+  return [...entries].sort((left, right) => {
+    const leftTime = Date.parse(String(left?.updatedAt || "")) || 0;
+    const rightTime = Date.parse(String(right?.updatedAt || "")) || 0;
+    if (leftTime !== rightTime) {
+      return rightTime - leftTime;
+    }
+
+    return String(left?.caller || "").localeCompare(String(right?.caller || ""));
+  });
+}
+
+function listSavedDiscountCodesFromFile() {
+  const bestByCaller = new Map();
+
+  try {
+    const sessions = readSessionsFromFile();
+
+    for (const [sessionKey, sessionRecord] of Object.entries(sessions)) {
+      const caller = String(sessionRecord?.caller || "").trim();
+      const discount = discountCodeSummary(sessionRecord);
+      const current = bestByCaller.get(caller);
+
+      if (!caller || !discount) {
+        continue;
+      }
+
+      if (!current || isPreferredCallerSession(sessionKey, sessionRecord, current.sessionKey, current.sessionRecord)) {
+        bestByCaller.set(caller, {
+          sessionKey,
+          sessionRecord,
+          discount
+        });
+      }
+    }
+  } catch (_error) {
+    return [];
+  }
+
+  return sortSavedDiscountCodes(Array.from(bestByCaller.values(), (entry) => entry.discount));
+}
+
+function clearDiscountCodeByCallerInFile(caller) {
+  const sessions = readSessionsFromFile();
+  let changed = false;
+
+  for (const sessionRecord of Object.values(sessions)) {
+    if (!sessionRecord || String(sessionRecord.caller || "").trim() !== caller || !sessionRecord.discountCode) {
+      continue;
+    }
+
+    delete sessionRecord.discountCode;
+    sessionRecord.updatedAt = new Date().toISOString();
+    changed = true;
+  }
+
+  if (changed) {
+    writeSessionsToFile(sessions);
+  }
+
+  return changed;
 }
 
 async function saveOrderToBlob(orderRecord) {
@@ -436,6 +534,66 @@ async function deleteSessionsByCallerInBlob(caller) {
   } while (cursor);
 }
 
+async function listSavedDiscountCodesFromBlob() {
+  const { list } = blobSdk();
+  let cursor;
+  const bestByCaller = new Map();
+
+  do {
+    const page = await list({ prefix: SESSION_BLOB_PREFIX, cursor });
+    for (const blob of Array.isArray(page.blobs) ? page.blobs : []) {
+      const sessionKey = blob.pathname.replace(SESSION_BLOB_PREFIX, "").replace(/\.json$/, "");
+      const sessionRecord = await loadSessionFromBlob(sessionKey);
+      const caller = String(sessionRecord?.caller || "").trim();
+      const discount = discountCodeSummary(sessionRecord);
+      const current = bestByCaller.get(caller);
+
+      if (!caller || !discount) {
+        continue;
+      }
+
+      if (!current || isPreferredCallerSession(sessionKey, sessionRecord, current.sessionKey, current.sessionRecord)) {
+        bestByCaller.set(caller, {
+          sessionKey,
+          sessionRecord,
+          discount
+        });
+      }
+    }
+
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+
+  return sortSavedDiscountCodes(Array.from(bestByCaller.values(), (entry) => entry.discount));
+}
+
+async function clearDiscountCodeByCallerInBlob(caller) {
+  const { list } = blobSdk();
+  let cursor;
+  let changed = false;
+
+  do {
+    const page = await list({ prefix: SESSION_BLOB_PREFIX, cursor });
+    for (const blob of Array.isArray(page.blobs) ? page.blobs : []) {
+      const sessionKey = blob.pathname.replace(SESSION_BLOB_PREFIX, "").replace(/\.json$/, "");
+      const sessionRecord = await loadSessionFromBlob(sessionKey);
+
+      if (!sessionRecord || String(sessionRecord.caller || "").trim() !== caller || !sessionRecord.discountCode) {
+        continue;
+      }
+
+      delete sessionRecord.discountCode;
+      sessionRecord.updatedAt = new Date().toISOString();
+      await saveSessionToBlob(sessionKey, sessionRecord);
+      changed = true;
+    }
+
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+
+  return changed;
+}
+
 async function loadAppConfigFromBlob() {
   const { get } = blobSdk();
 
@@ -472,10 +630,12 @@ async function saveAppConfigToBlob(config) {
 }
 
 module.exports = {
+  clearDiscountCodeByCaller,
   deleteSession,
   deleteSessionsByCaller,
   ensureDataStore,
   findSessionByCaller,
+  listSavedDiscountCodes,
   loadAppConfig,
   loadSession,
   loadOrders,

@@ -193,6 +193,77 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
+      .saved-discounts {
+        margin-bottom: 18px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--panel);
+        box-shadow: 0 10px 30px rgba(36, 71, 143, 0.05);
+      }
+
+      .saved-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: end;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+
+      .saved-head h2 {
+        margin: 0;
+        font-size: 1.05rem;
+      }
+
+      .saved-head p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .saved-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .saved-empty {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .saved-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(238, 244, 255, 0.7), rgba(255, 255, 255, 0.95));
+      }
+
+      .saved-meta {
+        display: grid;
+        gap: 4px;
+      }
+
+      .saved-phone {
+        font-weight: 700;
+      }
+
+      .saved-code {
+        color: var(--accent-deep);
+        font-size: 0.92rem;
+      }
+
+      .saved-updated {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
       .empty {
         border: 1px dashed var(--line);
         background: var(--panel);
@@ -409,6 +480,16 @@
         </div>
       </section>
 
+      <section class="saved-discounts">
+        <div class="saved-head">
+          <div>
+            <h2>Saved Coupon Codes</h2>
+            <p>Phone numbers with coupon codes currently saved for ordering.</p>
+          </div>
+        </div>
+        <div class="saved-list" id="saved-discounts"></div>
+      </section>
+
       <section class="orders" id="orders"></section>
     </main>
 
@@ -419,6 +500,7 @@
       const revenueEl = document.getElementById("revenue-total");
       const lastRefreshEl = document.getElementById("last-refresh");
       const statusEl = document.getElementById("status");
+      const savedDiscountsEl = document.getElementById("saved-discounts");
       const testIvrButton = document.getElementById("testivr-button");
       const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
@@ -466,6 +548,15 @@
           style: "currency",
           currency: "USD"
         }).format(Number(amount || 0));
+      }
+
+      function escapeHtml(value) {
+        return String(value || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
       }
 
       function redirectToLogin() {
@@ -532,6 +623,28 @@
 
       function renderEmpty() {
         ordersEl.innerHTML = '<article class="empty">No orders yet. When callers place orders, they will appear here.</article>';
+      }
+
+      function renderSavedDiscounts(entries) {
+        if (!Array.isArray(entries) || !entries.length) {
+          savedDiscountsEl.innerHTML = '<p class="saved-empty">No saved coupon codes.</p>';
+          return;
+        }
+
+        savedDiscountsEl.innerHTML = entries
+          .map(
+            (entry) => `
+              <article class="saved-card">
+                <div class="saved-meta">
+                  <div class="saved-phone">${escapeHtml(entry.caller || "Unknown caller")}</div>
+                  <div class="saved-code">Code ${escapeHtml(entry.code || "")}${entry.verified ? " · verified" : ""}</div>
+                  <div class="saved-updated">Updated ${escapeHtml(formatTime(entry.updatedAt))}</div>
+                </div>
+                <button class="secondary" type="button" data-remove-caller="${escapeHtml(entry.caller || "")}">Remove coupon</button>
+              </article>
+            `
+          )
+          .join("");
       }
 
       function chip(label, value) {
@@ -657,6 +770,50 @@
         }
       }
 
+      async function loadSavedDiscounts() {
+        try {
+          const response = await fetch(appUrl("/api/admin/caller-discounts"), { cache: "no-store" });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+
+          renderSavedDiscounts(await response.json());
+        } catch (_error) {
+          savedDiscountsEl.innerHTML = '<p class="saved-empty">Could not load saved coupon codes.</p>';
+        }
+      }
+
+      async function removeSavedDiscount(caller) {
+        if (!caller) {
+          return;
+        }
+
+        statusEl.textContent = `Removing saved coupon for ${caller}…`;
+        try {
+          const payload = new URLSearchParams({ caller });
+          const response = await fetch(appUrl("/api/admin/caller-discounts/clear"), {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: payload
+          });
+
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+
+          if (!response.ok) {
+            throw new Error(`Request failed with ${response.status}`);
+          }
+
+          statusEl.textContent = `Removed saved coupon for ${caller}.`;
+          await loadSavedDiscounts();
+        } catch (error) {
+          statusEl.textContent = `Could not remove saved coupon: ${error.message}`;
+        }
+      }
+
       async function loadSettings() {
         try {
           const response = await fetch(appUrl("/api/admin/settings"), { cache: "no-store" });
@@ -681,11 +838,17 @@
       function setAutoRefresh() {
         if (timer) clearInterval(timer);
         if (autoRefresh.checked) {
-          timer = setInterval(loadOrders, 15000);
+          timer = setInterval(() => {
+            loadOrders();
+            loadSavedDiscounts();
+          }, 15000);
         }
       }
 
-      refreshButton.addEventListener("click", loadOrders);
+      refreshButton.addEventListener("click", () => {
+        loadOrders();
+        loadSavedDiscounts();
+      });
       testIvrButton.addEventListener("click", () => {
         window.location.href = appUrl("/testivr");
       });
@@ -701,8 +864,14 @@
         saveSettings();
       });
       pennyCcToggle.addEventListener("change", saveSettings);
+      savedDiscountsEl.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-remove-caller]");
+        if (!button) return;
+        removeSavedDiscount(button.getAttribute("data-remove-caller"));
+      });
 
       loadOrders();
+      loadSavedDiscounts();
       loadSettings();
       setAutoRefresh();
     </script>

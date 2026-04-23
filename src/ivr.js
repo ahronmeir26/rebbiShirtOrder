@@ -2,9 +2,11 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const {
+  clearDiscountCodeByCaller,
   deleteSession,
   deleteSessionsByCaller,
   findSessionByCaller,
+  listSavedDiscountCodes,
   loadAppConfig,
   loadOrders,
   loadSession,
@@ -1068,6 +1070,7 @@ async function clearSession(callSid, from) {
 async function resetSessionState(callSid, from) {
   const caller = String(from || "").trim();
   const callKey = callSid ? String(callSid).trim() : "";
+  const { session: existingSession } = await getSession(callSid, from);
 
   await clearSession(callSid, from);
 
@@ -1080,6 +1083,7 @@ async function resetSessionState(callSid, from) {
     caller,
     lastCallSid: callKey,
     updatedAt: new Date().toISOString(),
+    discountCode: existingSession?.discountCode,
     cart: []
   });
 
@@ -1289,6 +1293,8 @@ function isAdminPagePath(pathname) {
 function isProtectedAdminApiPath(pathname) {
   return (
     pathname === "/api/orders" ||
+    pathname === "/api/admin/caller-discounts" ||
+    pathname === "/api/admin/caller-discounts/clear" ||
     pathname === "/api/admin/settings" ||
     pathname === "/api/testivr/settings" ||
     pathname === "/api/twilio/test/reset"
@@ -1650,7 +1656,11 @@ function isRepeatPromptSubmission(form) {
 }
 
 function discountCodeContextTarget(context) {
-  return context === "intro" ? "/api/twilio/voice" : "/api/twilio/order/finalize";
+  return context === "order-start" ? "/api/twilio/order/start" : "/api/twilio/order/finalize";
+}
+
+function hasSavedDiscountCode(session) {
+  return Boolean(String(session?.discountCode?.code || "").trim());
 }
 
 function itemSpeechParts(item) {
@@ -1914,8 +1924,8 @@ function discountCodeMenuResponse(baseUrl, context = "summary") {
       timeout: DEFAULT_SELECTION_TIMEOUT + 1,
       hints: "discount code, 0 1 2 3 4 5 6 7 8 9, back, star",
       prompt:
-        context === "intro"
-          ? "Please enter your numeric discount code now, then press pound. This code is required before you can continue."
+        context === "order-start"
+          ? "If you have a numeric coupon code, enter it now and press pound. If not, just press pound to continue."
           : "Enter your numeric discount code now and press pound. Press pound with no digits to continue, or press star to go back."
     }),
     say("We did not receive a discount code."),
@@ -2262,16 +2272,7 @@ async function authorizeRequest(req, res, pathname) {
 
 async function handleVoiceWebhook(req, res, baseUrl) {
   const form = await parseFormBody(req);
-  const { key, session } = await getSession(form.CallSid, form.From);
-
-  if (String(session.discountCodePromptCallSid || "").trim() !== String(form.CallSid || "").trim()) {
-    session.discountCodeEntryComplete = true;
-    session.discountCodePromptCallSid = String(form.CallSid || "").trim();
-    await persistSessionState(key, session);
-    xml(res, 200, discountCodeMenuResponse(baseUrl, "intro"));
-    return;
-  }
-
+  await getSession(form.CallSid, form.From);
   xml(res, 200, mainMenuResponse(baseUrl));
 }
 
@@ -2288,7 +2289,7 @@ async function handleMainMenu(req, res, baseUrl) {
 
   if (selection === "1") {
     await warmPreorderCacheForOrderFlow();
-    xml(res, 200, categoryMenuResponse(baseUrl));
+    xml(res, 200, hasSavedDiscountCode(session) ? categoryMenuResponse(baseUrl) : discountCodeMenuResponse(baseUrl, "order-start"));
     return;
   }
 
@@ -2345,27 +2346,16 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { key, session } = await getSession(form.CallSid, form.From);
   const current = new URL(req.url, "http://localhost");
-  const context = current.searchParams.get("context") === "intro" ? "intro" : "summary";
+  const context = current.searchParams.get("context") === "order-start" ? "order-start" : "summary";
   const targetPath = discountCodeContextTarget(context);
   const spoken = String(form.SpeechResult || form.Digits || "").trim();
 
   if (wantsPreviousMenu(form) || spoken.toLowerCase() === "star") {
-    if (context === "intro") {
-      xml(res, 200, twiml([say("A discount code is required before you can continue."), twimlBody(discountCodeMenuResponse(baseUrl, context))]));
-      return;
-    }
-
-    xml(res, 200, postAddMenuResponse(baseUrl, session));
+    xml(res, 200, context === "order-start" ? mainMenuResponse(baseUrl) : postAddMenuResponse(baseUrl, session));
     return;
   }
 
   if (!spoken) {
-    if (context === "intro") {
-      await persistSessionState(key, session);
-      xml(res, 200, twiml([say("A discount code is required before you can continue."), twimlBody(discountCodeMenuResponse(baseUrl, context))]));
-      return;
-    }
-
     await persistSessionState(key, session);
     xml(res, 200, twiml([redirect(baseUrl, targetPath)]));
     return;
@@ -2421,18 +2411,6 @@ async function handleDiscountCodeEntry(req, res, baseUrl) {
 
     delete session.discountCode;
     await persistSessionState(key, session);
-    if (context === "intro") {
-      xml(
-        res,
-        200,
-        twiml([
-          say(`I heard ${normalizedCode}. That discount code was not found. Please try again.`),
-          twimlBody(discountCodeMenuResponse(baseUrl, context))
-        ])
-      );
-      return;
-    }
-
     xml(res, 200, twiml([say(`I heard ${normalizedCode}. That discount code was not found. Please try again.`), twimlBody(discountCodeMenuResponse(baseUrl, context))]));
   } catch (_error) {
     session.discountCode = {
@@ -2456,10 +2434,10 @@ async function handleDiscountCodeReview(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { key, session } = await getSession(form.CallSid, form.From);
   const current = new URL(req.url, "http://localhost");
-  const context = current.searchParams.get("context") === "intro" ? "intro" : "summary";
+  const context = current.searchParams.get("context") === "order-start" ? "order-start" : "summary";
 
   if (wantsPreviousMenu(form)) {
-    xml(res, 200, context === "intro" ? mainMenuResponse(baseUrl) : postAddMenuResponse(baseUrl, session));
+    xml(res, 200, context === "order-start" ? mainMenuResponse(baseUrl) : postAddMenuResponse(baseUrl, session));
     return;
   }
 
@@ -2482,6 +2460,37 @@ async function handleDiscountCodeReview(req, res, baseUrl) {
     200,
     invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", `/api/twilio/order/discount-code?context=${encodeURIComponent(context)}`)
   );
+}
+
+async function handleCallerDiscountCodes(_req, res) {
+  try {
+    json(res, 200, await listSavedDiscountCodes());
+  } catch (_error) {
+    json(res, 200, []);
+  }
+}
+
+async function handleClearCallerDiscountCode(req, res) {
+  const form = await parseFormBody(req);
+  const caller = String(form.caller || "").trim();
+
+  if (!caller) {
+    json(res, 400, { error: "Caller is required." });
+    return;
+  }
+
+  const cleared = await clearDiscountCodeByCaller(caller);
+  const updatedAt = new Date().toISOString();
+  for (const sessionRecord of sessions.values()) {
+    if (!sessionRecord || String(sessionRecord.caller || "").trim() !== caller || !sessionRecord.discountCode) {
+      continue;
+    }
+
+    delete sessionRecord.discountCode;
+    sessionRecord.updatedAt = updatedAt;
+  }
+
+  json(res, 200, { ok: true, cleared });
 }
 
 async function handleTestReset(req, res) {
@@ -3422,6 +3431,14 @@ async function routeRequest(req, res, pathname, baseUrl) {
       json(res, 200, []);
     }
     return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/admin/caller-discounts") {
+    return handleCallerDiscountCodes(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/caller-discounts/clear") {
+    return handleClearCallerDiscountCode(req, res);
   }
 
   if (req.method === "POST" && pathname === "/api/twilio/voice") {
