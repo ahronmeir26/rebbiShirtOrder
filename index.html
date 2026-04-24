@@ -12,8 +12,9 @@
         --ink: #202223;
         --muted: #6d7175;
         --line: #e1e3e5;
-        --accent: #202223;
-        --accent-soft: #e4e5e7;
+        --accent: #2563eb;
+        --accent-deep: #1d4ed8;
+        --accent-soft: #eff6ff;
         --warn: #6d7175;
         --danger: #202223;
         --danger-soft: #e4e5e7;
@@ -50,6 +51,23 @@
         background: var(--panel);
         color: var(--ink);
         border: 1px solid var(--line);
+      }
+
+      button:hover {
+        background: var(--accent-deep);
+      }
+
+      button.secondary:hover {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+      }
+
+      input:focus-visible,
+      button:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid var(--accent-soft);
+        outline-offset: 2px;
+        border-color: var(--accent);
       }
 
       button.danger {
@@ -114,6 +132,7 @@
 
       .menu[open] summary {
         border-color: var(--accent);
+        background: var(--accent-soft);
       }
 
       .menu-panel {
@@ -258,6 +277,7 @@
       .order-number {
         font-size: 1.04rem;
         font-weight: 800;
+        color: var(--accent-deep);
       }
 
       .card-meta {
@@ -284,6 +304,12 @@
         color: var(--muted);
         font-size: 0.8rem;
         font-weight: 700;
+      }
+
+      .pill:first-child {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        color: var(--accent-deep);
       }
 
       .pill.refunded {

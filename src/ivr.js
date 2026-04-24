@@ -1528,95 +1528,130 @@ function renderLoginPage({ error = "", nextPath = "/", logout = false, username 
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Admin Login</title>
     <style>
-      :root {
-        color-scheme: light;
-        --bg: #f3eee7;
-        --panel: #fffdf8;
-        --ink: #1d1c18;
-        --muted: #6a6258;
-        --accent: #8a5a12;
-        --border: rgba(29, 28, 24, 0.12);
-        --error: #a11b1b;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        background:
-          radial-gradient(circle at top left, rgba(138, 90, 18, 0.14), transparent 32%),
-          linear-gradient(160deg, #f6f1e9 0%, var(--bg) 55%, #ede4d8 100%);
-        color: var(--ink);
-        font-family: Georgia, "Times New Roman", serif;
-      }
-      .card {
-        width: min(420px, 100%);
-        padding: 32px 28px;
-        border-radius: 20px;
-        background: var(--panel);
-        border: 1px solid var(--border);
-        box-shadow: 0 24px 64px rgba(29, 28, 24, 0.12);
-      }
-      h1 {
-        margin: 0 0 10px;
-        font-size: 1.9rem;
-      }
-      p {
-        margin: 0 0 18px;
+	      :root {
+	        color-scheme: light;
+	        --bg: #f6f6f7;
+	        --panel: #ffffff;
+	        --panel-soft: #f6f6f7;
+	        --ink: #202223;
+	        --muted: #6d7175;
+	        --line: #e1e3e5;
+	        --tag: #e4e5e7;
+	        --accent: #2563eb;
+	        --accent-deep: #1d4ed8;
+	        --accent-soft: #eff6ff;
+	        --error: #b42318;
+	      }
+	      * { box-sizing: border-box; }
+	      body {
+	        margin: 0;
+	        min-height: 100vh;
+	        display: grid;
+	        place-items: center;
+	        padding: 24px;
+	        background: var(--bg);
+	        color: var(--ink);
+	        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+	      }
+	      .card {
+	        width: min(460px, 100%);
+	        padding: 28px;
+	        border-radius: 8px;
+	        background: var(--panel);
+	        border: 1px solid var(--line);
+	        box-shadow: 0 14px 34px rgba(32, 34, 35, 0.08);
+	      }
+	      .eyebrow {
+	        display: inline-flex;
+	        align-items: center;
+	        min-height: 28px;
+	        padding: 4px 9px;
+	        margin-bottom: 18px;
+	        border-radius: 999px;
+	        border: 1px solid var(--accent);
+	        background: var(--accent-soft);
+	        color: var(--accent-deep);
+	        font-size: 0.78rem;
+	        font-weight: 800;
+	        text-transform: uppercase;
+	      }
+	      h1 {
+	        margin: 0 0 8px;
+	        font-size: 1.65rem;
+	        line-height: 1.1;
+	      }
+	      p {
+	        margin: 0 0 18px;
         line-height: 1.5;
         color: var(--muted);
       }
-      .notice, .error {
-        padding: 12px 14px;
-        border-radius: 12px;
-        margin-bottom: 16px;
-        font-size: 0.96rem;
-      }
-      .notice {
-        background: rgba(138, 90, 18, 0.08);
-        color: var(--ink);
-      }
-      .error {
-        background: rgba(161, 27, 27, 0.08);
-        color: var(--error);
-      }
-      label {
-        display: block;
+	      .notice, .error {
+	        padding: 12px 14px;
+	        border-radius: 8px;
+	        margin-bottom: 16px;
+	        font-size: 0.96rem;
+	      }
+	      .notice {
+	        background: var(--accent-soft);
+	        color: var(--ink);
+	        border: 1px solid var(--accent);
+	      }
+	      .error {
+	        background: #fff1f0;
+	        color: var(--error);
+	        border: 1px solid #ffccc7;
+	      }
+	      label {
+	        display: block;
         margin-bottom: 10px;
         font-weight: 600;
       }
-      input {
-        width: 100%;
-        padding: 14px 15px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        background: white;
-        font: inherit;
-        margin-bottom: 18px;
-      }
-      button {
-        width: 100%;
-        border: 0;
-        border-radius: 999px;
-        padding: 14px 18px;
-        font: inherit;
-        font-weight: 700;
-        color: white;
-        background: linear-gradient(135deg, #8a5a12 0%, #b3751d 100%);
-        cursor: pointer;
-      }
-      .footnote {
-        margin-top: 16px;
-        font-size: 0.88rem;
-        color: var(--muted);
-      }
-    </style>
+	      input {
+	        width: 100%;
+	        padding: 14px 15px;
+	        border-radius: 8px;
+	        border: 1px solid var(--line);
+	        background: var(--panel);
+	        font: inherit;
+	        margin-bottom: 18px;
+	        color: var(--ink);
+	      }
+	      input:focus-visible {
+	        outline: 3px solid var(--accent-soft);
+	        outline-offset: 2px;
+	        border-color: var(--accent);
+	      }
+	      button {
+	        width: 100%;
+	        border: 0;
+	        border-radius: 8px;
+	        padding: 14px 18px;
+	        font: inherit;
+	        font-weight: 700;
+	        color: white;
+	        background: var(--accent);
+	        cursor: pointer;
+	      }
+	      button:hover {
+	        background: var(--accent-deep);
+	      }
+	      button:focus-visible {
+	        outline: 3px solid var(--accent-soft);
+	        outline-offset: 2px;
+	      }
+	      .footnote {
+	        margin-top: 16px;
+	        font-size: 0.88rem;
+	        color: var(--muted);
+	        padding-top: 14px;
+	        border-top: 1px solid var(--line);
+	      }
+	    </style>
   </head>
-  <body>
-    <main class="card">
-      <h1>Admin Login</h1>
+	  <body>
+	    <main class="card">
+	      <div class="eyebrow">Order Desk</div>
+	      <h1>Admin Login</h1>
       <p>Sign in to access the order dashboard, IVR test page, and transfer tools.</p>
       ${notice}
       ${errorMarkup}
