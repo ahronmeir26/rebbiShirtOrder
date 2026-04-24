@@ -35,6 +35,8 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 - `POST /api/orders/shopify-refund`
 - `GET /shopify/refund`
 - `POST /api/shopify/refund-action`
+- `GET /shopify/debug`
+- `GET /api/shopify/debug`
 - `GET /api/admin/caller-discounts`
 - `POST /api/admin/caller-discounts/clear`
 - `GET /`
@@ -115,6 +117,8 @@ shopify app deploy
 ```
 
 The app needs order read/write Admin API access for refunds.
+
+Use `/shopify/debug` to inspect the Shopify launch query, HMAC validation, expected extension target, configured environment presence, and Vercel function count without printing secrets.
 
 ## Notes
 

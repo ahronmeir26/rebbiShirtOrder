@@ -1610,6 +1610,283 @@ function currentSearch(req) {
   return new URL(String(req.url || "/"), "http://localhost").search;
 }
 
+function isLikelyShopifyLaunchSearch(search) {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  return params.has("hmac") || params.has("shop") || params.has("host");
+}
+
+function maskConfigValue(value, visible = 5) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  if (text.length <= visible * 2) {
+    return `${text.slice(0, 2)}...`;
+  }
+
+  return `${text.slice(0, visible)}...${text.slice(-visible)}`;
+}
+
+function envPresence(name, { reveal = false } = {}) {
+  const value = String(process.env[name] || "").trim();
+  return {
+    name,
+    set: Boolean(value),
+    value: reveal && value ? maskConfigValue(value) : undefined
+  };
+}
+
+function sanitizedQueryEntries(search) {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  return Array.from(params.entries()).map(([key, value]) => ({
+    key,
+    value:
+      key === "hmac" || key === "signature" || /token|secret|password/i.test(key)
+        ? maskConfigValue(value)
+        : String(value || "")
+  }));
+}
+
+function shopifyDebugReport(req, baseUrl) {
+  const current = new URL(String(req.url || "/"), "http://localhost");
+  const params = current.searchParams;
+  const search = current.search;
+  const reference = shopifyRefundReferenceFromParams(params);
+  const hmacPresent = params.has("hmac");
+  const hmacVerifiable = Boolean(shopifyAppSecret());
+  const hmacValid = hmacPresent && verifyShopifySignedSearch(search);
+  const apiFiles = [
+    "api/admin/settings.js",
+    "api/health.js",
+    "api/login.js",
+    "api/logout.js",
+    "api/orders.js",
+    "api/testivr/settings.js",
+    "api/transfers.js",
+    "api/twilio/[section]/[step].js",
+    "api/twilio/[section]/[step]/[action].js",
+    "api/twilio/menu.js",
+    "api/twilio/voice.js"
+  ];
+  const diagnostics = [];
+
+  if (!hmacPresent) {
+    diagnostics.push("No Shopify hmac query parameter is present. A direct browser visit is expected to show this; a Shopify-launched app/admin link should include hmac, shop, host, and usually id.");
+  } else if (!hmacVerifiable) {
+    diagnostics.push("Shopify hmac is present, but SHOPIFY_CLIENT_SECRET or SHOPIFY_API_SECRET is not set on this server.");
+  } else if (!hmacValid) {
+    diagnostics.push("Shopify hmac is present but invalid. This usually means the server has the wrong Shopify app secret, or the URL was modified after Shopify signed it.");
+  }
+
+  if (!reference.orderId && !reference.orderNumber) {
+    diagnostics.push("No order reference was found in the query. For an order details admin link, Shopify should provide an id query parameter.");
+  }
+
+  diagnostics.push("If this debug page works but RB refund stripe is not in More actions, the app extension is not registered/released on the installed Shopify app, the app is installed on a different client ID, or the order is outside the app's order-read scope.");
+
+  return {
+    generatedAt: new Date().toISOString(),
+    request: {
+      path: current.pathname,
+      host: String(req.headers?.host || ""),
+      forwardedProto: String(req.headers?.["x-forwarded-proto"] || ""),
+      vercel: String(process.env.VERCEL || "") === "1",
+      query: sanitizedQueryEntries(search)
+    },
+    shopifyLaunch: {
+      shop: String(params.get("shop") || ""),
+      hostPresent: params.has("host"),
+      hmacPresent,
+      hmacVerifiable,
+      hmacValid,
+      orderId: reference.orderId || "",
+      orderNumber: reference.orderNumber || ""
+    },
+    configuration: {
+      appUrl: baseUrl,
+      refundPage: `${baseUrl}/shopify/refund`,
+      debugPage: `${baseUrl}/shopify/debug`,
+      actionEndpoint: `${baseUrl}/api/shopify/refund-action`,
+      env: [
+        envPresence("SHOPIFY_STORE_DOMAIN", { reveal: true }),
+        envPresence("SHOPIFY_CLIENT_ID", { reveal: true }),
+        envPresence("SHOPIFY_CLIENT_SECRET"),
+        envPresence("SHOPIFY_API_SECRET"),
+        envPresence("SHOPIFY_ADMIN_ACCESS_TOKEN"),
+        envPresence("SHOPIFY_REFUND_ROUTE_SECRET"),
+        envPresence("SHOPIFY_API_VERSION", { reveal: true })
+      ]
+    },
+    extension: {
+      type: "admin_link",
+      handle: "rb-refund-stripe",
+      name: "RB refund stripe",
+      target: "admin.order-details.action.link",
+      url: "/shopify/refund",
+      note: "This TOML config must be deployed/released to the Shopify app. Vercel/GitHub alone cannot register it in Shopify."
+    },
+    vercelFunctionLimit: {
+      used: apiFiles.length,
+      max: 12,
+      remaining: 12 - apiFiles.length,
+      apiFiles
+    },
+    deployment: {
+      commitSha: String(process.env.VERCEL_GIT_COMMIT_SHA || ""),
+      commitRef: String(process.env.VERCEL_GIT_COMMIT_REF || ""),
+      productionUrl: String(process.env.VERCEL_PROJECT_PRODUCTION_URL || "")
+    },
+    diagnostics
+  };
+}
+
+function renderShopifyDebugPage(report) {
+  const envRows = report.configuration.env
+    .map(
+      (entry) =>
+        `<div class="row"><span>${escapeXml(entry.name)}</span><strong class="${entry.set ? "ok" : "bad"}">${entry.set ? "set" : "missing"}${entry.value ? ` (${escapeXml(entry.value)})` : ""}</strong></div>`
+    )
+    .join("");
+  const diagnostics = report.diagnostics.map((item) => `<li>${escapeXml(item)}</li>`).join("");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shopify refund debug</title>
+    <style>
+      :root {
+        --ink: #202223;
+        --muted: #6d7175;
+        --bg: #f6f6f7;
+        --line: #e1e3e5;
+        --pill: #e4e5e7;
+        --surface: #ffffff;
+      }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--bg);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 18px 44px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        letter-spacing: 0;
+      }
+      h2 {
+        margin: 0 0 12px;
+        font-size: 16px;
+        letter-spacing: 0;
+      }
+      p, li {
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        padding: 9px 0;
+      }
+      .row:last-child {
+        border-bottom: 0;
+      }
+      code, pre {
+        background: var(--pill);
+        border-radius: 6px;
+      }
+      code {
+        padding: 2px 5px;
+      }
+      pre {
+        overflow: auto;
+        padding: 12px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .ok {
+        color: #008060;
+      }
+      .bad {
+        color: #d72c0d;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Shopify refund debug</h1>
+      <p>This page checks the hosted refund app without adding another Vercel function. No secret values are printed.</p>
+      <div class="grid">
+        <section class="panel">
+          <h2>Launch Check</h2>
+          <div class="row"><span>Shop</span><strong>${escapeXml(report.shopifyLaunch.shop || "none")}</strong></div>
+          <div class="row"><span>HMAC present</span><strong class="${report.shopifyLaunch.hmacPresent ? "ok" : "bad"}">${escapeXml(report.shopifyLaunch.hmacPresent)}</strong></div>
+          <div class="row"><span>HMAC valid</span><strong class="${report.shopifyLaunch.hmacValid ? "ok" : "bad"}">${escapeXml(report.shopifyLaunch.hmacValid)}</strong></div>
+          <div class="row"><span>Order ID</span><strong>${escapeXml(report.shopifyLaunch.orderId || "none")}</strong></div>
+          <div class="row"><span>Order number</span><strong>${escapeXml(report.shopifyLaunch.orderNumber || "none")}</strong></div>
+        </section>
+        <section class="panel">
+          <h2>Vercel Limit</h2>
+          <div class="row"><span>Functions used</span><strong class="ok">${escapeXml(report.vercelFunctionLimit.used)} / ${escapeXml(report.vercelFunctionLimit.max)}</strong></div>
+          <div class="row"><span>Remaining</span><strong>${escapeXml(report.vercelFunctionLimit.remaining)}</strong></div>
+          <div class="row"><span>Commit</span><strong>${escapeXml(maskConfigValue(report.deployment.commitSha || "local", 7))}</strong></div>
+        </section>
+        <section class="panel">
+          <h2>Environment</h2>
+          ${envRows}
+        </section>
+        <section class="panel">
+          <h2>Extension Expected</h2>
+          <div class="row"><span>Type</span><strong>${escapeXml(report.extension.type)}</strong></div>
+          <div class="row"><span>Target</span><strong>${escapeXml(report.extension.target)}</strong></div>
+          <div class="row"><span>URL</span><strong>${escapeXml(report.extension.url)}</strong></div>
+        </section>
+      </div>
+      <section class="panel" style="margin-top: 14px;">
+        <h2>Diagnostics</h2>
+        <ul>${diagnostics}</ul>
+      </section>
+      <section class="panel" style="margin-top: 14px;">
+        <h2>Raw Report</h2>
+        <pre>${escapeXml(JSON.stringify(report, null, 2))}</pre>
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
+function handleShopifyDebug(req, res, baseUrl) {
+  const report = shopifyDebugReport(req, baseUrl);
+  const wantsJson = new URL(String(req.url || "/"), "http://localhost").pathname.startsWith("/api/");
+  if (wantsJson) {
+    json(res, 200, report);
+    return;
+  }
+
+  htmlWithHeaders(res, 200, { "Cache-Control": "no-store" }, renderShopifyDebugPage(report));
+}
+
 function renderShopifyRefundPage({ launchQuery, reference, preview, error }) {
   const orderName = preview?.order?.name || reference.orderNumber || "";
   const orderLabel = orderName || reference.orderId || "this order";
@@ -4530,6 +4807,10 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "GET" && pathname === "/shopify/refund") {
     return handleShopifyRefundPage(req, res);
+  }
+
+  if (req.method === "GET" && (pathname === "/shopify/debug" || pathname === "/api/shopify/debug")) {
+    return handleShopifyDebug(req, res, baseUrl);
   }
 
   if (req.method === "GET" && pathname === "/logo-aistone.png") {

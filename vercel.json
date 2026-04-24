@@ -30,6 +30,14 @@
       "destination": "/api/orders?route=shopify-refund-page"
     },
     {
+      "source": "/shopify/debug",
+      "destination": "/api/orders?route=shopify-debug"
+    },
+    {
+      "source": "/api/shopify/debug",
+      "destination": "/api/orders?route=shopify-debug"
+    },
+    {
       "source": "/testivr",
       "destination": "/testivr/index.html"
     },
