@@ -15,6 +15,9 @@ module.exports = async function handler(req, res) {
   } else if (current.searchParams.get("route") === "shopify-refund-page") {
     current.searchParams.delete("route");
     req.url = `/shopify/refund${current.search}`;
+  } else if (current.searchParams.get("route") === "shopify-debug-json") {
+    current.searchParams.delete("route");
+    req.url = `/api/shopify/debug${current.search}`;
   } else if (current.searchParams.get("route") === "shopify-debug") {
     current.searchParams.delete("route");
     req.url = `/shopify/debug${current.search}`;
