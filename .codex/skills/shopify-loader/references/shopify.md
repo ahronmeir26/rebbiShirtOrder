@@ -12,6 +12,8 @@
   App client secret from the Shopify Dev Dashboard
 - `SHOPIFY_API_VERSION`
   Example: `2025-01`
+- `SHOPIFY_REFUND_ROUTE_SECRET`
+  Shared bearer token for server-to-server calls to `POST /api/orders/shopify-refund`
 
 ## Recommended pattern
 
@@ -42,6 +44,9 @@ Use the same split unless there is a strong reason to rewrite the flow fully in 
 - Draft order creation requires `write_draft_orders` or `write_quick_sale`, plus a user/app context that can manage draft orders.
 - Completing a draft into a real order uses `draftOrderComplete(id: ...)` after `draftOrderCreate`.
 - Discount code lookup with `codeDiscountNodeByCode` requires `read_discounts`.
+- Refunding a Shopify order by order number uses Admin GraphQL `orders(query: "name:#1234")` followed by `refundCreate`. The endpoint is `POST /api/orders/shopify-refund`, is protected by the normal admin session cookie or `Authorization: Bearer $SHOPIFY_REFUND_ROUTE_SECRET`, and currently performs full refunds by sending all refundable line items, `shipping: { fullRefund: true }`, and `transactions: []` so Shopify determines the payment allocation. This uses the existing `api/orders.js` Vercel function through a rewrite to stay under the Hobby function limit.
+- The Shopify More actions refund app is an admin link extension at `extensions/rb-refund-stripe`. It adds `RB refund stripe` on order details, opens `GET /shopify/refund`, and submits to `POST /api/shopify/refund-action`; both are hosted by the same Vercel app and reuse `api/orders.js` through rewrites. The page and action verify Shopify's signed `hmac` launch query with `SHOPIFY_CLIENT_SECRET`/`SHOPIFY_API_SECRET` before refunding.
+- Refund app scopes should include `read_orders` and `write_orders`.
 
 ## Unfulfilled orders
 

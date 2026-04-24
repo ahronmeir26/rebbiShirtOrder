@@ -1,6 +1,6 @@
 # Repository Instructions
 
-- After changing application code, restart the local dev server with `npm run dev` so the latest behavior is available for testing.
+- After changing application code, do not restart the local dev server automatically; the user will run it when needed.
 - When relevant, mention whether the running dev server reflects the newest code or needs a restart.
 - When the user says to remember a repo-specific workflow or preference, add it to `AGENTS.md`.
 - Do not commit or push changes unless the user explicitly asks.
@@ -10,8 +10,9 @@
 - When implementing features in this repo, make sure the behavior works in both local dev and Vercel environments.
 - For any code change in this repo, always verify the implementation will work on the Vercel server, not just in local dev.
 - Keep Vercel Hobby plan limits in mind: do not add serverless functions beyond the 12-function deployment limit. Prefer reusing an existing API wrapper when adding endpoints.
-- When running the local dev server for this repo, also run ngrok so Twilio can reach the local app.
-- Start ngrok for this repo with `/tmp/ngrok-install/ngrok http 3000` whenever starting the local dev server.
+- Do not start ngrok automatically after changes; the user will run it when needed.
+- Start ngrok for this repo with `npm run ngrok`, or use `npm run dev:all` to start both the dev server and ngrok together.
+- The persistent ngrok binary for this repo is expected at `~/.local/bin/ngrok`; do not install or rely on a `/tmp` ngrok path.
 - When the issue is clearly Vercel-only, do not treat restarting the local dev server as meaningful verification.
 - When the user asks to fix something in this repo, treat that as applying to both the live phone IVR flow and the `/testivr` page unless they say otherwise.
 - For Twilio routes on Vercel, do not assume nested paths are covered automatically; add or verify explicit Vercel route wrappers for nested endpoints like `/api/twilio/order/...` or `/api/twilio/cart/...` so production routing matches local routing.

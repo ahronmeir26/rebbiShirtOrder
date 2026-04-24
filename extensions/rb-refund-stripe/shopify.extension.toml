@@ -1,0 +1,9 @@
+[[extensions]]
+name = "t:name"
+handle = "rb-refund-stripe"
+type = "admin_link"
+uid = "feb60a10-ba9a-46b6-87eb-483e02247e84"
+
+[[extensions.targeting]]
+target = "admin.order-details.action.link"
+url = "/shopify/refund"

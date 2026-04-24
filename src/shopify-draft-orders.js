@@ -631,6 +631,293 @@ async function completeDraftOrder(draftOrderId) {
   return result.draftOrder;
 }
 
+function shopifyRouteError(message, statusCode) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function normalizeShopifyOrderNumber(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  const compact = raw.replace(/\s+/g, "");
+  if (/^\d+$/.test(compact)) {
+    return `#${compact}`;
+  }
+
+  if (/^#?\d+$/.test(compact)) {
+    return compact.startsWith("#") ? compact : `#${compact}`;
+  }
+
+  if (!/^[#A-Za-z0-9][#A-Za-z0-9._-]{0,63}$/.test(compact)) {
+    return "";
+  }
+
+  return compact;
+}
+
+function normalizeRefundRequest(refund) {
+  if (refund == null || refund === "") {
+    return { type: "full" };
+  }
+
+  if (typeof refund !== "object" || Array.isArray(refund)) {
+    throw shopifyRouteError("Refund payload must be an object.", 400);
+  }
+
+  const type = String(refund.type || "full").trim().toLowerCase();
+  if (type !== "full") {
+    throw shopifyRouteError("Only full Shopify refunds are currently supported by this route.", 400);
+  }
+
+  return { type };
+}
+
+function refundLineItemsForFullOrder(order) {
+  return (Array.isArray(order?.lineItems?.nodes) ? order.lineItems.nodes : [])
+    .map((lineItem) => ({
+      lineItemId: lineItem.id,
+      quantity: Math.max(0, Number(lineItem.refundableQuantity ?? 0))
+    }))
+    .filter((lineItem) => lineItem.lineItemId && lineItem.quantity > 0);
+}
+
+async function findShopifyOrderByNumber(orderNumber) {
+  const normalizedOrderNumber = normalizeShopifyOrderNumber(orderNumber);
+  if (!normalizedOrderNumber) {
+    throw shopifyRouteError("Enter a valid Shopify order number, such as #1234 or 1234.", 400);
+  }
+
+  const query = `
+    query OrderByName($query: String!) {
+      orders(first: 2, query: $query) {
+        nodes {
+          id
+          name
+          cancelledAt
+          displayFinancialStatus
+          totalPriceSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+          lineItems(first: 100) {
+            nodes {
+              id
+              quantity
+              refundableQuantity
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, { query: `name:${normalizedOrderNumber}` });
+  const matches = Array.isArray(data.orders?.nodes) ? data.orders.nodes : [];
+  const exactMatches = matches.filter((order) => String(order?.name || "").trim() === normalizedOrderNumber);
+  const usableMatches = exactMatches.length ? exactMatches : matches;
+
+  if (!usableMatches.length) {
+    throw shopifyRouteError(`Shopify order ${normalizedOrderNumber} was not found.`, 404);
+  }
+
+  if (usableMatches.length > 1) {
+    throw shopifyRouteError(`Shopify order ${normalizedOrderNumber} matched more than one order.`, 409);
+  }
+
+  return usableMatches[0];
+}
+
+function normalizeShopifyOrderGid(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  if (/^gid:\/\/shopify\/Order\/\d+$/.test(raw)) {
+    return raw;
+  }
+
+  const match = raw.match(/\d+/);
+  return match ? `gid://shopify/Order/${match[0]}` : "";
+}
+
+async function findShopifyOrderById(orderId) {
+  const normalizedOrderId = normalizeShopifyOrderGid(orderId);
+  if (!normalizedOrderId) {
+    throw shopifyRouteError("Enter a valid Shopify order ID.", 400);
+  }
+
+  const query = `
+    query OrderById($id: ID!) {
+      order: node(id: $id) {
+        ... on Order {
+          id
+          name
+          cancelledAt
+          displayFinancialStatus
+          totalPriceSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+          lineItems(first: 100) {
+            nodes {
+              id
+              quantity
+              refundableQuantity
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, { id: normalizedOrderId });
+  if (!data.order?.id) {
+    throw shopifyRouteError("Shopify order was not found.", 404);
+  }
+
+  return data.order;
+}
+
+async function findShopifyOrderByReference({ orderNumber, orderId } = {}) {
+  if (String(orderId || "").trim()) {
+    return findShopifyOrderById(orderId);
+  }
+
+  return findShopifyOrderByNumber(orderNumber);
+}
+
+function refundableQuantityForOrder(order) {
+  return refundLineItemsForFullOrder(order).reduce((sum, lineItem) => sum + lineItem.quantity, 0);
+}
+
+async function getShopifyOrderRefundPreview({ orderNumber, orderId } = {}) {
+  const order = await findShopifyOrderByReference({ orderNumber, orderId });
+  const totalPrice = order.totalPriceSet?.presentmentMoney || {};
+
+  return {
+    order: {
+      id: order.id,
+      name: order.name,
+      cancelledAt: order.cancelledAt,
+      financialStatus: order.displayFinancialStatus,
+      totalPrice: Number(totalPrice.amount || 0),
+      currencyCode: String(totalPrice.currencyCode || ""),
+      refundableQuantity: refundableQuantityForOrder(order)
+    }
+  };
+}
+
+async function refundShopifyOrderByReference({ orderNumber, orderId, notify = false, note, refund } = {}) {
+  const refundRequest = normalizeRefundRequest(refund);
+  const order = await findShopifyOrderByReference({ orderNumber, orderId });
+  const refundLineItems = refundRequest.type === "full" ? refundLineItemsForFullOrder(order) : [];
+
+  if (!refundLineItems.length) {
+    throw shopifyRouteError(`Shopify order ${order.name || orderNumber} has no refundable line items.`, 409);
+  }
+
+  const mutation = `
+    mutation RefundShopifyOrder($input: RefundInput!) {
+      refundCreate(input: $input) {
+        refund {
+          id
+          note
+          totalRefundedSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+          transactions(first: 10) {
+            edges {
+              node {
+                id
+                kind
+                status
+                gateway
+                amountSet {
+                  presentmentMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+              }
+            }
+          }
+        }
+        order {
+          id
+          name
+          displayFinancialStatus
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(mutation, {
+    input: {
+      orderId: order.id,
+      refundLineItems,
+      shipping: { fullRefund: true },
+      transactions: [],
+      notify: Boolean(notify),
+      note: String(note || `Full refund requested through secure backend route for ${order.name}.`).trim()
+    }
+  });
+  const result = data.refundCreate || {};
+  const errors = Array.isArray(result.userErrors) ? result.userErrors.filter((entry) => entry?.message) : [];
+  if (errors.length) {
+    throw shopifyRouteError(errors.map((entry) => entry.message).join("; "), 400);
+  }
+
+  if (!result.refund?.id) {
+    throw new Error("Shopify refundCreate returned no refund.");
+  }
+
+  return {
+    refund: {
+      id: result.refund.id,
+      note: result.refund.note,
+      totalRefunded: Number(result.refund.totalRefundedSet?.presentmentMoney?.amount || 0),
+      currencyCode: String(result.refund.totalRefundedSet?.presentmentMoney?.currencyCode || ""),
+      transactions: (Array.isArray(result.refund.transactions?.edges) ? result.refund.transactions.edges : [])
+        .map((edge) => edge?.node)
+        .filter(Boolean)
+        .map((transaction) => ({
+          id: transaction.id,
+          kind: transaction.kind,
+          status: transaction.status,
+          gateway: transaction.gateway,
+          amount: Number(transaction.amountSet?.presentmentMoney?.amount || 0),
+          currencyCode: String(transaction.amountSet?.presentmentMoney?.currencyCode || "")
+        }))
+    },
+    order: {
+      id: result.order?.id || order.id,
+      name: result.order?.name || order.name,
+      financialStatus: result.order?.displayFinancialStatus || order.displayFinancialStatus,
+      refundStatus: result.order?.displayFinancialStatus || order.displayFinancialStatus
+    }
+  };
+}
+
+async function refundShopifyOrderByNumber({ orderNumber, notify = false, note, refund } = {}) {
+  return refundShopifyOrderByReference({ orderNumber, notify, note, refund });
+}
+
 async function loadOrderRefundDetails(orderId) {
   const query = `
     query OrderRefundDetails($id: ID!) {
@@ -824,8 +1111,11 @@ module.exports = {
   createDraftOrder,
   findCustomerByPhone,
   formatAddressLines,
+  getShopifyOrderRefundPreview,
   normalizeCustomerAddress,
   normalizePhoneForShopify,
   lookupDiscountCode,
+  refundShopifyOrderByReference,
+  refundShopifyOrderByNumber,
   toMoneyAmount
 };

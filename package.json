@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "node src/local-server.js",
+    "ngrok": "sh -c 'NGROK_BIN=${NGROK_BIN:-$HOME/.local/bin/ngrok}; \"$NGROK_BIN\" http ${PORT:-3000}'",
+    "dev:all": "sh -c 'trap \"kill 0\" EXIT INT TERM; npm run dev & npm run ngrok & wait'",
     "start": "node src/local-server.js",
     "check": "node --check src/admin-auth.js && node --check src/ivr.js && node --check src/transfers.js && node --check src/local-server.js && node --check src/order-store.js && node --check src/preorder-cache.js && node --check src/shopify-draft-orders.js && node --check src/vercel-twilio-route.js && node --check api/admin/settings.js && node --check api/health.js && node --check api/login.js && node --check api/logout.js && node --check api/orders.js && node --check api/testivr/settings.js && node --check api/transfers.js && node --check api/twilio/voice.js && node --check api/twilio/menu.js && node --check 'api/twilio/[section]/[step].js' && node --check 'api/twilio/[section]/[step]/[action].js'"
   },

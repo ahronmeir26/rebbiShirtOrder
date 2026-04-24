@@ -18,6 +18,18 @@
       "destination": "/api/logout"
     },
     {
+      "source": "/api/orders/shopify-refund",
+      "destination": "/api/orders?route=shopify-refund"
+    },
+    {
+      "source": "/api/shopify/refund-action",
+      "destination": "/api/orders?route=shopify-refund-action"
+    },
+    {
+      "source": "/shopify/refund",
+      "destination": "/api/orders?route=shopify-refund-page"
+    },
+    {
       "source": "/testivr",
       "destination": "/testivr/index.html"
     },

@@ -343,6 +343,7 @@
       let currentGatherInput = "dtmf";
       let currentGatherNumDigits = 0;
       let currentGatherFinishOnKey = "#";
+      let currentGatherTimeout = 0;
       let dtmfBuffer = "";
       let dtmfSubmitTimer = null;
       let callEnded = false;
@@ -566,6 +567,7 @@
         currentGatherInput = parsed.input || "dtmf";
         currentGatherNumDigits = parsed.numDigits || 0;
         currentGatherFinishOnKey = parsed.finishOnKey ?? "#";
+        currentGatherTimeout = parsed.timeout || 0;
         dtmfBuffer = "";
         manualInputEl.value = "";
         cancelDtmfSubmitTimer();
@@ -594,6 +596,7 @@
           callSid = "";
           currentGatherNumDigits = 0;
           currentGatherFinishOnKey = "#";
+          currentGatherTimeout = 0;
           callEnded = true;
           setStatus("Call ended.");
           return;
@@ -617,6 +620,7 @@
         currentGatherInput = "dtmf";
         currentGatherNumDigits = 0;
         currentGatherFinishOnKey = "#";
+        currentGatherTimeout = 0;
         dtmfBuffer = "";
         manualInputEl.value = "";
         cancelDtmfSubmitTimer();
@@ -695,7 +699,7 @@
             dtmfBuffer = "";
             manualInputEl.value = "";
             sendInput(value);
-          }, 1200);
+          }, Math.max(currentGatherTimeout || 0, 1) * 1000);
         }
       }
 
@@ -709,6 +713,7 @@
         currentGatherInput = "dtmf";
         currentGatherNumDigits = 0;
         currentGatherFinishOnKey = "#";
+        currentGatherTimeout = 0;
         dtmfBuffer = "";
         manualInputEl.value = "";
         callEnded = true;
@@ -740,6 +745,7 @@
         currentGatherInput = "dtmf";
         currentGatherNumDigits = 0;
         currentGatherFinishOnKey = "#";
+        currentGatherTimeout = 0;
         dtmfBuffer = "";
         manualInputEl.value = "";
         callEnded = false;

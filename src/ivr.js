@@ -31,9 +31,12 @@ const {
   createDraftOrder,
   findCustomerByPhone,
   formatAddressLines,
+  getShopifyOrderRefundPreview,
   lookupDiscountCode,
   cancelAndMarkShopifyOrderRefunded,
   normalizePhoneForShopify,
+  refundShopifyOrderByReference,
+  refundShopifyOrderByNumber,
   toMoneyAmount
 } = require("./shopify-draft-orders");
 
@@ -477,6 +480,10 @@ function parseFormBody(req) {
   }
 
   if (typeof req.body === "string") {
+    if (String(req.headers?.["content-type"] || "").toLowerCase().includes("application/json")) {
+      return Promise.resolve(JSON.parse(req.body || "{}"));
+    }
+
     const params = new URLSearchParams(req.body);
     const data = {};
     for (const [key, value] of params.entries()) {
@@ -497,6 +504,15 @@ function parseFormBody(req) {
     });
 
     req.on("end", () => {
+      if (String(req.headers?.["content-type"] || "").toLowerCase().includes("application/json")) {
+        try {
+          resolve(JSON.parse(body || "{}"));
+        } catch (error) {
+          reject(error);
+        }
+        return;
+      }
+
       const params = new URLSearchParams(body);
       const data = {};
       for (const [key, value] of params.entries()) {
@@ -1447,6 +1463,7 @@ function isProtectedAdminApiPath(pathname) {
   return (
     pathname === "/api/orders" ||
     pathname === "/api/orders/refund" ||
+    pathname === "/api/orders/shopify-refund" ||
     pathname === "/api/admin/caller-discounts" ||
     pathname === "/api/admin/caller-discounts/clear" ||
     pathname === "/api/admin/settings" ||
@@ -1511,6 +1528,350 @@ function authMisconfiguredResponse(res, isApi) {
 
 function shouldEnforceAdminAuth(pathname) {
   return isAdminPagePath(pathname) || isProtectedAdminApiPath(pathname);
+}
+
+function timingSafeTextEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""), "utf8");
+  const rightBuffer = Buffer.from(String(right || ""), "utf8");
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function authorizationBearerToken(req) {
+  const header = String(req?.headers?.authorization || req?.headers?.Authorization || "").trim();
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function isShopifyRefundBearerAuthenticated(req) {
+  const secret = String(process.env.SHOPIFY_REFUND_ROUTE_SECRET || "").trim();
+  const token = authorizationBearerToken(req);
+  return Boolean(secret && token && timingSafeTextEqual(token, secret));
+}
+
+function shopifyAppSecret() {
+  return String(process.env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_API_SECRET || "").trim();
+}
+
+function shopifyHmacMessageFromSearch(search) {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  params.delete("hmac");
+  params.delete("signature");
+  return Array.from(params.entries())
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey)
+    )
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+}
+
+function verifyShopifySignedSearch(search) {
+  const secret = shopifyAppSecret();
+  if (!secret) {
+    return false;
+  }
+
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  const hmac = String(params.get("hmac") || "").trim();
+  if (!hmac) {
+    return false;
+  }
+
+  const expected = crypto.createHmac("sha256", secret).update(shopifyHmacMessageFromSearch(search), "utf8").digest("hex");
+  return timingSafeTextEqual(hmac, expected);
+}
+
+function isAuthorizedShopifyRefundLaunch(req, launchQuery) {
+  return isAdminAuthenticated(req) || verifyShopifySignedSearch(launchQuery);
+}
+
+function firstQueryValue(params, names) {
+  for (const name of names) {
+    const value = params.get(name);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function shopifyRefundReferenceFromParams(params) {
+  return {
+    orderId: firstQueryValue(params, ["id", "ids[]", "ids", "order_id", "orderId"]),
+    orderNumber: firstQueryValue(params, ["orderNumber", "order_name", "orderName", "name"])
+  };
+}
+
+function currentSearch(req) {
+  return new URL(String(req.url || "/"), "http://localhost").search;
+}
+
+function renderShopifyRefundPage({ launchQuery, reference, preview, error }) {
+  const orderName = preview?.order?.name || reference.orderNumber || "";
+  const orderLabel = orderName || reference.orderId || "this order";
+  const amount =
+    preview?.order?.totalPrice > 0
+      ? `${preview.order.currencyCode || "USD"} ${Number(preview.order.totalPrice || 0).toFixed(2)}`
+      : "";
+  const refundableQuantity = Number(preview?.order?.refundableQuantity || 0);
+  const canRefund = Boolean((reference.orderId || reference.orderNumber) && !error && refundableQuantity > 0);
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RB refund stripe</title>
+    <style>
+      :root {
+        --ink: #202223;
+        --muted: #6d7175;
+        --bg: #f6f6f7;
+        --line: #e1e3e5;
+        --pill: #e4e5e7;
+        --surface: #ffffff;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+      .summary {
+        display: grid;
+        gap: 10px;
+        margin: 18px 0;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 10px;
+      }
+      .row:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+      .label {
+        color: var(--muted);
+      }
+      .value {
+        font-weight: 600;
+        text-align: right;
+      }
+      .notice {
+        border: 1px solid var(--line);
+        background: var(--bg);
+        border-radius: 8px;
+        padding: 12px;
+        color: var(--ink);
+        margin: 16px 0;
+      }
+      .error {
+        border-color: #d72c0d;
+        color: #8e1f0b;
+        background: #fff4f4;
+      }
+      label {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        margin: 16px 0;
+        color: var(--ink);
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--ink);
+        border-radius: 6px;
+        background: var(--ink);
+        color: #ffffff;
+        font: inherit;
+        font-weight: 650;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        border-color: var(--line);
+        background: var(--pill);
+        color: var(--muted);
+        cursor: not-allowed;
+      }
+      .secondary {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>RB refund stripe</h1>
+      <p>Refund the selected Shopify order from the same Vercel app.</p>
+      <section class="panel">
+        ${error ? `<div class="notice error">${escapeXml(error)}</div>` : ""}
+        <div class="summary">
+          <div class="row"><span class="label">Order</span><span class="value">${escapeXml(orderLabel)}</span></div>
+          ${amount ? `<div class="row"><span class="label">Order total</span><span class="value">${escapeXml(amount)}</span></div>` : ""}
+          ${
+            preview
+              ? `<div class="row"><span class="label">Refundable items</span><span class="value">${escapeXml(refundableQuantity)}</span></div>`
+              : ""
+          }
+        </div>
+        <div class="notice">Full refunds are enabled now. Partial refunds will be added later on this same screen.</div>
+        <form id="refund-form">
+          <input type="hidden" name="launchQuery" value="${escapeXml(launchQuery)}">
+          <input type="hidden" name="orderId" value="${escapeXml(reference.orderId || "")}">
+          <input type="hidden" name="orderNumber" value="${escapeXml(reference.orderNumber || orderName || "")}">
+          <input type="hidden" name="refundType" value="full">
+          <label>
+            <input id="confirm-refund" type="checkbox" ${canRefund ? "" : "disabled"}>
+            <span>I understand this will submit a full refund for ${escapeXml(orderLabel)}.</span>
+          </label>
+          <button id="refund-button" type="submit" disabled>${canRefund ? "Refund full order" : "Refund unavailable"}</button>
+        </form>
+        <p class="secondary" id="status"></p>
+      </section>
+    </main>
+    <script>
+      const form = document.getElementById("refund-form");
+      const checkbox = document.getElementById("confirm-refund");
+      const button = document.getElementById("refund-button");
+      const statusEl = document.getElementById("status");
+
+      if (checkbox) {
+        checkbox.addEventListener("change", () => {
+          button.disabled = !checkbox.checked;
+        });
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        button.disabled = true;
+        statusEl.textContent = "Submitting refund...";
+        const body = new URLSearchParams(new FormData(form));
+        try {
+          const response = await fetch("/api/shopify/refund-action", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Refund failed.");
+          }
+          statusEl.textContent = \`Refund created for \${payload.order?.name || "order"}.\`;
+        } catch (error) {
+          statusEl.textContent = error.message;
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>`;
+}
+
+async function handleShopifyRefundPage(req, res) {
+  const launchQuery = currentSearch(req);
+  const params = new URLSearchParams(launchQuery.replace(/^\?/, ""));
+  const reference = shopifyRefundReferenceFromParams(params);
+
+  if (!isAuthorizedShopifyRefundLaunch(req, launchQuery)) {
+    htmlWithHeaders(res, 401, { "Cache-Control": "no-store", "Content-Security-Policy": "frame-ancestors https://admin.shopify.com https://*.myshopify.com" }, renderShopifyRefundPage({
+      launchQuery,
+      reference,
+      error: "This Shopify action link is not authorized."
+    }));
+    return;
+  }
+
+  let preview = null;
+  let error = "";
+  if (!reference.orderId && !reference.orderNumber) {
+    error = "Shopify did not provide an order ID for this action.";
+  } else {
+    try {
+      preview = await getShopifyOrderRefundPreview(reference);
+      reference.orderId = reference.orderId || preview.order.id;
+      reference.orderNumber = reference.orderNumber || preview.order.name;
+      if (!preview.order.refundableQuantity) {
+        error = "This order has no refundable line items.";
+      }
+    } catch (innerError) {
+      error = String(innerError?.message || "Could not load the Shopify order.");
+    }
+  }
+
+  htmlWithHeaders(res, 200, { "Cache-Control": "no-store", "Content-Security-Policy": "frame-ancestors https://admin.shopify.com https://*.myshopify.com" }, renderShopifyRefundPage({
+    launchQuery,
+    reference,
+    preview,
+    error
+  }));
+}
+
+async function handleShopifyRefundAction(req, res) {
+  let form;
+  try {
+    form = await parseFormBody(req);
+  } catch (_error) {
+    json(res, 400, { error: "Request body must be valid JSON or form data." });
+    return;
+  }
+
+  const launchQuery = String(form.launchQuery || "").trim();
+  if (!isAuthorizedShopifyRefundLaunch(req, launchQuery)) {
+    json(res, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  if (String(form.refundType || "full").trim().toLowerCase() !== "full") {
+    json(res, 400, { error: "Only full refunds are currently supported." });
+    return;
+  }
+
+  try {
+    const result = await refundShopifyOrderByReference({
+      orderId: form.orderId,
+      orderNumber: form.orderNumber,
+      notify: parseBooleanInput(form.notify, false),
+      note: form.note || "Full refund requested from Shopify More actions via RB refund stripe.",
+      refund: { type: "full" }
+    });
+    json(res, 200, { ok: true, ...result });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode || 0);
+    json(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
+      error: String(error?.message || "Shopify refund failed.")
+    });
+  }
 }
 
 function renderLoginPage({ error = "", nextPath = "/", logout = false, username = "" } = {}) {
@@ -2056,11 +2417,11 @@ function sizeMenuResponse(baseUrl, pendingItem, availableSizes = getSizeCatalog(
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/size", pendingItem),
-      finishOnKey: "#",
-      timeout: 3,
+      finishOnKey: "",
+      timeout: 2,
       input: "dtmf",
       hints: optionNameList(availableSizes),
-      prompt: `Enter neck size, then press pound. Available sizes are ${optionNameList(availableSizes)}. For size 14 and a half, press 1, 4, 5. Use the same pattern for other half sizes. Press star to go back.`
+      prompt: `Enter neck size. Available sizes are ${optionNameList(availableSizes)}. For size 14 and a half, press 1, 4, 5. Use the same pattern for other half sizes. Press star to go back.`
     }),
     say("We did not receive a size."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
@@ -2591,6 +2952,10 @@ async function authorizeRequest(req, res, pathname) {
   }
 
   if (shouldEnforceAdminAuth(pathname)) {
+    if (pathname === "/api/orders/shopify-refund" && isShopifyRefundBearerAuthenticated(req)) {
+      return true;
+    }
+
     if (!isAdminAuthConfigured()) {
       authMisconfiguredResponse(res, pathname.startsWith("/api/"));
       return false;
@@ -3155,6 +3520,75 @@ async function handleRefundOrder(req, res) {
       items: Array.isArray(updatedOrder.items) ? updatedOrder.items.map(normalizeStoredItem) : []
     }
   });
+}
+
+function parseBooleanInput(value, fallback = false) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function parseStructuredFormValue(value) {
+  if (!value || typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return value;
+  }
+
+  return JSON.parse(trimmed);
+}
+
+async function handleShopifyOrderNumberRefund(req, res) {
+  let form;
+  try {
+    form = await parseFormBody(req);
+  } catch (_error) {
+    json(res, 400, { error: "Request body must be valid JSON or form data." });
+    return;
+  }
+
+  const orderNumber = String(form.orderNumber || form.orderName || form.name || "").trim();
+  if (!orderNumber) {
+    json(res, 400, { error: "Order number is required." });
+    return;
+  }
+
+  let refund;
+  try {
+    refund = parseStructuredFormValue(form.refund);
+  } catch (_error) {
+    json(res, 400, { error: "Refund payload must be valid JSON." });
+    return;
+  }
+
+  try {
+    const result = await refundShopifyOrderByNumber({
+      orderNumber,
+      notify: parseBooleanInput(form.notify, false),
+      note: form.note,
+      refund
+    });
+    json(res, 200, { ok: true, ...result });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode || 0);
+    json(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
+      error: String(error?.message || "Shopify refund failed.")
+    });
+  }
 }
 
 async function handleTestReset(req, res) {
@@ -4094,6 +4528,10 @@ async function routeRequest(req, res, pathname, baseUrl) {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/shopify/refund") {
+    return handleShopifyRefundPage(req, res);
+  }
+
   if (req.method === "GET" && pathname === "/logo-aistone.png") {
     file(res, 200, "image/png", fs.readFileSync(logoFile));
     return;
@@ -4119,6 +4557,14 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "POST" && (pathname === "/api/orders" || pathname === "/api/orders/refund")) {
     return handleRefundOrder(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/api/orders/shopify-refund") {
+    return handleShopifyOrderNumberRefund(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/api/shopify/refund-action") {
+    return handleShopifyRefundAction(req, res);
   }
 
   if (req.method === "GET" && pathname === "/api/admin/caller-discounts") {

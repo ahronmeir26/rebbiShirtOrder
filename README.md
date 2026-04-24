@@ -32,6 +32,9 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 - `POST /api/twilio/cart/play`
 - `POST /api/twilio/cart/control`
 - `POST /api/twilio/cart/quantity`
+- `POST /api/orders/shopify-refund`
+- `GET /shopify/refund`
+- `POST /api/shopify/refund-action`
 - `GET /api/admin/caller-discounts`
 - `POST /api/admin/caller-discounts/clear`
 - `GET /`
@@ -87,6 +90,31 @@ https://your-app.vercel.app/api/twilio/voice
 curl -X POST http://localhost:3000/api/twilio/voice \
   -d "CallSid=CA1234567890&From=%2B15555550123"
 ```
+
+## Shopify refund route
+
+`POST /api/orders/shopify-refund` refunds a Shopify order by order number. It reuses the existing orders API function on Vercel.
+
+Server-to-server callers must set `Authorization: Bearer $SHOPIFY_REFUND_ROUTE_SECRET`. Browser admin callers can use the existing admin session cookie.
+
+```bash
+curl -X POST https://your-app.vercel.app/api/orders/shopify-refund \
+  -H "Authorization: Bearer $SHOPIFY_REFUND_ROUTE_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"orderNumber":"#1234","notify":false}'
+```
+
+## Shopify More Actions refund app
+
+The `extensions/rb-refund-stripe` admin link extension adds `RB refund stripe` to the order details page More actions menu. It opens `/shopify/refund` on this same Vercel app and posts to `/api/shopify/refund-action` after server-side Shopify HMAC verification.
+
+Deploy the extension with Shopify CLI from this repo after connecting it to the Shopify app:
+
+```bash
+shopify app deploy
+```
+
+The app needs order read/write Admin API access for refunds.
 
 ## Notes
 
