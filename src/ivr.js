@@ -1537,9 +1537,9 @@ function renderLoginPage({ error = "", nextPath = "/", logout = false, username 
 	        --muted: #6d7175;
 	        --line: #e1e3e5;
 	        --tag: #e4e5e7;
-	        --accent: #2563eb;
-	        --accent-deep: #1d4ed8;
-	        --accent-soft: #eff6ff;
+	        --accent: rgb(43, 49, 58);
+	        --accent-deep: rgb(33, 38, 45);
+	        --accent-soft: #e4e5e7;
 	        --error: #b42318;
 	      }
 	      * { box-sizing: border-box; }
@@ -2057,7 +2057,7 @@ function sizeMenuResponse(baseUrl, pendingItem, availableSizes = getSizeCatalog(
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/size", pendingItem),
       finishOnKey: "#",
-      timeout: 5,
+      timeout: 3,
       input: "dtmf",
       hints: optionNameList(availableSizes),
       prompt: `Enter neck size, then press pound. Available sizes are ${optionNameList(availableSizes)}. For size 14 and a half, press 1, 4, 5. Use the same pattern for other half sizes. Press star to go back.`

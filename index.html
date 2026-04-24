@@ -12,9 +12,9 @@
         --ink: #202223;
         --muted: #6d7175;
         --line: #e1e3e5;
-        --accent: #2563eb;
-        --accent-deep: #1d4ed8;
-        --accent-soft: #eff6ff;
+        --accent: rgb(43, 49, 58);
+        --accent-deep: rgb(33, 38, 45);
+        --accent-soft: #e4e5e7;
         --warn: #6d7175;
         --danger: #202223;
         --danger-soft: #e4e5e7;
@@ -231,16 +231,11 @@
         padding: 0 12px;
       }
 
-      .dashboard {
-        display: grid;
-        grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
-        gap: 16px;
-        align-items: start;
-      }
-
       .orders {
         display: grid;
-        gap: 10px;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 12px;
+        align-items: stretch;
       }
 
       .order-card,
@@ -255,6 +250,7 @@
       .order-card {
         width: 100%;
         display: grid;
+        grid-template-rows: auto 1fr auto;
         gap: 12px;
         padding: 13px;
         text-align: left;
@@ -265,6 +261,7 @@
       .order-card:hover,
       .order-card.active {
         border-color: var(--accent);
+        box-shadow: 0 16px 36px rgba(32, 34, 35, 0.12);
       }
 
       .card-top {
@@ -326,8 +323,35 @@
       }
 
       .detail-panel {
-        min-height: 420px;
-        padding: 16px;
+        width: min(980px, calc(100vw - 28px));
+        max-height: calc(100vh - 48px);
+        padding: 18px;
+        overflow: auto;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: grid;
+        place-items: center;
+        padding: 24px 14px;
+        background: rgba(32, 34, 35, 0.42);
+      }
+
+      .modal-backdrop[hidden] {
+        display: none;
+      }
+
+      .close-button {
+        width: 40px;
+        min-width: 40px;
+        height: 40px;
+        padding: 0;
+        border-radius: 999px;
+        line-height: 1;
+        font-size: 1.4rem;
+        font-weight: 700;
       }
 
       .detail-grid {
@@ -463,7 +487,6 @@
       @media (max-width: 980px) {
         .topbar,
         .toolbar,
-        .dashboard,
         .detail-grid {
           grid-template-columns: 1fr;
         }
@@ -576,13 +599,16 @@
 
       <section class="dashboard">
         <div class="orders" id="orders"></div>
-        <aside class="detail-panel" id="order-detail"></aside>
       </section>
     </main>
+    <div class="modal-backdrop" id="order-modal" hidden>
+      <aside class="detail-panel" id="order-detail" role="dialog" aria-modal="true" aria-labelledby="detail-title"></aside>
+    </div>
 
     <script>
       const ordersEl = document.getElementById("orders");
       const detailEl = document.getElementById("order-detail");
+      const orderModalEl = document.getElementById("order-modal");
       const orderCountEl = document.getElementById("order-count");
       const shirtCountEl = document.getElementById("shirt-count");
       const revenueEl = document.getElementById("revenue-total");
@@ -850,18 +876,23 @@
 
       function renderDetail(order) {
         if (!order) {
-          detailEl.innerHTML = '<div class="empty">No order selected.</div>';
+          detailEl.innerHTML = "";
+          orderModalEl.hidden = true;
           return;
         }
 
         const items = Array.isArray(order.items) ? order.items : [];
+        const wasHidden = orderModalEl.hidden;
         detailEl.innerHTML = `
           <div class="detail-head">
             <div>
-              <h2 class="detail-title">${escapeHtml(orderNumber(order))}</h2>
+              <h2 class="detail-title" id="detail-title">${escapeHtml(orderNumber(order))}</h2>
               <div class="muted">${escapeHtml(formatTime(order.createdAt))} / ${escapeHtml(formatPhone(order.caller))}</div>
             </div>
-            ${isRefunded(order) ? '<span class="pill refunded">Refunded</span>' : ""}
+            <div class="pill-row">
+              ${isRefunded(order) ? '<span class="pill refunded">Refunded</span>' : ""}
+              <button class="secondary close-button" type="button" data-close-detail aria-label="Close order detail">&times;</button>
+            </div>
           </div>
           <div class="detail-grid">
             <section>
@@ -912,6 +943,10 @@
             </aside>
           </div>
         `;
+        orderModalEl.hidden = false;
+        if (wasHidden) {
+          detailEl.querySelector("[data-close-detail]")?.focus();
+        }
       }
 
       function renderOrders() {
@@ -919,17 +954,18 @@
         if (!visibleOrders.length) {
           ordersEl.innerHTML = '<article class="empty">No matching orders.</article>';
           resultCountEl.textContent = "0 results";
+          selectedOrderId = "";
           renderDetail(null);
           return;
         }
 
-        if (!visibleOrders.some((order) => String(order.id || "") === selectedOrderId)) {
-          selectedOrderId = String(visibleOrders[0].id || "");
+        if (selectedOrderId && !visibleOrders.some((order) => String(order.id || "") === selectedOrderId)) {
+          selectedOrderId = "";
         }
 
         ordersEl.innerHTML = visibleOrders.map(renderOrderCard).join("");
         resultCountEl.textContent = `${visibleOrders.length} result${visibleOrders.length === 1 ? "" : "s"}`;
-        renderDetail(ordersState.find((order) => String(order.id || "") === selectedOrderId) || visibleOrders[0]);
+        renderDetail(selectedOrderId ? ordersState.find((order) => String(order.id || "") === selectedOrderId) : null);
       }
 
       function renderSavedDiscounts(entries) {
@@ -1073,6 +1109,11 @@
         }
       }
 
+      function closeDetail() {
+        selectedOrderId = "";
+        renderOrders();
+      }
+
       refreshButton.addEventListener("click", () => {
         loadOrders();
         loadSavedDiscounts();
@@ -1113,6 +1154,16 @@
         event.preventDefault();
         selectedOrderId = String(card.getAttribute("data-select-order") || "");
         renderOrders();
+      });
+      orderModalEl.addEventListener("click", (event) => {
+        if (event.target === orderModalEl || event.target.closest("[data-close-detail]")) {
+          closeDetail();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !orderModalEl.hidden) {
+          closeDetail();
+        }
       });
       savedDiscountsEl.addEventListener("click", (event) => {
         const button = event.target.closest("[data-remove-caller]");
