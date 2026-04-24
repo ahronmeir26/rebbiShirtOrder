@@ -1,6 +1,6 @@
 {
   "submitShopifyOrder": false,
-  "skipCreditCardPayment": false,
+  "skipCreditCardPayment": true,
   "chargeCreditCardOneCent": false,
-  "updatedAt": "2026-04-23T16:39:13.170Z"
+  "updatedAt": "2026-04-24T01:37:05.834Z"
 }

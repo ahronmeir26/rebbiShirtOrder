@@ -631,7 +631,195 @@ async function completeDraftOrder(draftOrderId) {
   return result.draftOrder;
 }
 
+async function loadOrderRefundDetails(orderId) {
+  const query = `
+    query OrderRefundDetails($id: ID!) {
+      order(id: $id) {
+        id
+        name
+        cancelledAt
+        displayFinancialStatus
+        displayRefundStatus
+        lineItems(first: 100) {
+          nodes {
+            id
+            quantity
+            refundableQuantity
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, { id: orderId });
+  if (!data.order?.id) {
+    throw new Error("Shopify order lookup returned no order.");
+  }
+
+  return data.order;
+}
+
+async function createManualShopifyRefundRecord(orderRecord, refund) {
+  const orderId = String(orderRecord?.shopifyOrder?.id || "").trim();
+  if (!orderId) {
+    throw new Error("Missing Shopify order ID.");
+  }
+
+  const refundDetails = await loadOrderRefundDetails(orderId);
+  const amount = toMoneyAmount(refund?.amount || orderRecord?.totalPrice || 0);
+  if (amount <= 0) {
+    throw new Error("Missing Shopify refund amount.");
+  }
+
+  const refundLineItems = (Array.isArray(refundDetails.lineItems?.nodes) ? refundDetails.lineItems.nodes : [])
+    .map((lineItem) => ({
+      lineItemId: lineItem.id,
+      quantity: Math.max(0, Number(lineItem.refundableQuantity ?? lineItem.quantity ?? 0))
+    }))
+    .filter((lineItem) => lineItem.lineItemId && lineItem.quantity > 0);
+  const shippingAmount = toMoneyAmount(orderRecord?.shippingPrice || 0);
+  const query = `
+    mutation CreateManualRefundRecord($input: RefundInput!) {
+      refundCreate(input: $input) {
+        refund {
+          id
+          note
+          totalRefundedSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        order {
+          id
+          name
+          displayFinancialStatus
+          displayRefundStatus
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, {
+    input: {
+      orderId,
+      note: `Stripe refund ${String(refund?.stripeRefundId || "").trim() || "created"} processed outside Shopify for IVR order ${orderRecord.id || ""}.`,
+      ...(refundLineItems.length ? { refundLineItems } : {}),
+      ...(shippingAmount > 0 ? { shipping: { amount: String(shippingAmount) } } : {}),
+      transactions: [
+        {
+          orderId,
+          gateway: "manual",
+          kind: "REFUND",
+          amount: String(amount)
+        }
+      ]
+    }
+  });
+  const result = data.refundCreate || {};
+  const errors = Array.isArray(result.userErrors) ? result.userErrors.filter((entry) => entry?.message) : [];
+  if (errors.length) {
+    throw new Error(errors.map((entry) => entry.message).join("; "));
+  }
+
+  if (!result.refund?.id) {
+    throw new Error("Shopify refund record returned no refund.");
+  }
+
+  return {
+    id: result.refund.id,
+    note: result.refund.note,
+    totalRefunded: Number(result.refund.totalRefundedSet?.presentmentMoney?.amount || amount),
+    currencyCode: String(result.refund.totalRefundedSet?.presentmentMoney?.currencyCode || refund?.currency || "USD"),
+    orderId: result.order?.id || orderId,
+    orderName: result.order?.name || orderRecord.shopifyOrder?.name,
+    financialStatus: result.order?.displayFinancialStatus,
+    refundStatus: result.order?.displayRefundStatus,
+    stripeRefundId: String(refund?.stripeRefundId || "").trim(),
+    markedAt: new Date().toISOString()
+  };
+}
+
+async function cancelShopifyOrderWithoutRefund(orderRecord, refundRecord) {
+  const orderId = String(orderRecord?.shopifyOrder?.id || "").trim();
+  if (!orderId) {
+    throw new Error("Missing Shopify order ID.");
+  }
+
+  const query = `
+    mutation CancelRefundedOrder(
+      $orderId: ID!
+      $refundMethod: OrderCancelRefundMethodInput!
+      $restock: Boolean!
+      $reason: OrderCancelReason!
+      $staffNote: String
+    ) {
+      orderCancel(
+        orderId: $orderId
+        refundMethod: $refundMethod
+        restock: $restock
+        reason: $reason
+        staffNote: $staffNote
+      ) {
+        job {
+          id
+          done
+        }
+        orderCancelUserErrors {
+          field
+          message
+          code
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, {
+    orderId,
+    refundMethod: {
+      originalPaymentMethodsRefund: false
+    },
+    restock: true,
+    reason: "CUSTOMER",
+    staffNote: `Canceled after external Stripe refund ${String(refundRecord?.stripeRefundId || "").trim() || "created"}.`
+  });
+  const result = data.orderCancel || {};
+  const errors = [
+    ...(Array.isArray(result.orderCancelUserErrors) ? result.orderCancelUserErrors : []),
+    ...(Array.isArray(result.userErrors) ? result.userErrors : [])
+  ].filter((entry) => entry?.message);
+  if (errors.length) {
+    throw new Error(errors.map((entry) => entry.message).join("; "));
+  }
+
+  return {
+    jobId: result.job?.id,
+    done: Boolean(result.job?.done),
+    cancelledAt: new Date().toISOString()
+  };
+}
+
+async function cancelAndMarkShopifyOrderRefunded(orderRecord, refund) {
+  const refundRecord = await createManualShopifyRefundRecord(orderRecord, refund);
+  const cancellation = await cancelShopifyOrderWithoutRefund(orderRecord, refundRecord);
+
+  return {
+    ...refundRecord,
+    cancellation
+  };
+}
+
 module.exports = {
+  cancelAndMarkShopifyOrderRefunded,
   completeDraftOrder,
   createDraftOrder,
   findCustomerByPhone,

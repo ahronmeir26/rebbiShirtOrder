@@ -25,13 +25,14 @@ const {
   sanitizeNextPath,
   verifyAdminCredentials
 } = require("./admin-auth");
-const { findMatchingPreorderSku, getPreorderCache } = require("./preorder-cache");
+const { findMatchingPreorderSku, getPreorderCache, normalizeSkuForPreorderMatch } = require("./preorder-cache");
 const {
   completeDraftOrder,
   createDraftOrder,
   findCustomerByPhone,
   formatAddressLines,
   lookupDiscountCode,
+  cancelAndMarkShopifyOrderRefunded,
   normalizePhoneForShopify,
   toMoneyAmount
 } = require("./shopify-draft-orders");
@@ -799,6 +800,9 @@ function paymentPromptResponse(baseUrl, preparedCheckout) {
 }
 
 function buildPaymentSummary(form, preparedCheckout) {
+  const confirmationCode = String(form.PaymentConfirmationCode || "").trim() || undefined;
+  const stripePaymentIntentId = stripePaymentIntentFromForm(form) || stripePaymentIntentFromValue(confirmationCode);
+
   return {
     result: String(form.Result || "").trim() || "unknown",
     mode: String(preparedCheckout?.paymentMode || "full-card").trim() || "full-card",
@@ -806,7 +810,9 @@ function buildPaymentSummary(form, preparedCheckout) {
     orderAmount: toMoneyAmount(preparedCheckout?.totalPrice || 0),
     currency: String(preparedCheckout?.currencyCode || "USD").trim() || "USD",
     connector: DEFAULT_TWILIO_PAY_CONNECTOR,
-    confirmationCode: String(form.PaymentConfirmationCode || "").trim() || undefined,
+    confirmationCode,
+    processorReference: confirmationCode,
+    stripePaymentIntentId,
     method: String(form.PaymentMethod || "").trim() || "credit-card",
     cardType: String(form.PaymentCardType || "").trim() || undefined,
     cardNumber: String(form.PaymentCardNumber || "").trim() || undefined,
@@ -825,6 +831,36 @@ function buildSkippedPaymentSummary(preparedCheckout, reason) {
     connector: DEFAULT_TWILIO_PAY_CONNECTOR,
     method: "credit-card"
   };
+}
+
+function stripePaymentIntentFromValue(value) {
+  const match = String(value || "").match(/\bpi_[a-zA-Z0-9_]+\b/);
+  return match ? match[0] : undefined;
+}
+
+function stripeChargeFromValue(value) {
+  const match = String(value || "").match(/\bch_[a-zA-Z0-9_]+\b/);
+  return match ? match[0] : undefined;
+}
+
+function stripePaymentIntentFromForm(form) {
+  const keys = [
+    "PaymentIntent",
+    "PaymentIntentId",
+    "StripePaymentIntent",
+    "StripePaymentIntentId",
+    "payment_intent",
+    "paymentIntent"
+  ];
+
+  for (const key of keys) {
+    const value = stripePaymentIntentFromValue(form?.[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 function paymentWasApproved(payment) {
@@ -890,7 +926,8 @@ async function submitPreparedOrder({ key, form, session, preparedCheckout, shoul
     discountCode: preparedCheckout.discountCode,
     discountCodeLookup: session.discountCode,
     shippingAddress: preparedCheckout.shippingAddress || session.shippingAddress,
-    payment: payment && typeof payment === "object" ? payment : undefined
+    payment: payment && typeof payment === "object" ? payment : undefined,
+    stripePaymentIntentId: payment?.stripePaymentIntentId || stripePaymentIntentFromValue(payment?.confirmationCode)
   };
 
   await saveOrder(orderRecord);
@@ -925,9 +962,11 @@ async function submitPreparedOrder({ key, form, session, preparedCheckout, shoul
       orderRecord.shopifyOrder = {
         id: completedDraft.order.id,
         name: completedDraft.order.name,
+        number: completedDraft.order.name,
         financialStatus: completedDraft.order.displayFinancialStatus,
         fulfillmentStatus: completedDraft.order.displayFulfillmentStatus
       };
+      orderRecord.shopifyOrderNumber = completedDraft.order.name;
     } catch (error) {
       orderRecord.shopifyOrderError = String(error?.message || "").trim() || "Unknown Shopify order completion error.";
       await saveOrder(orderRecord);
@@ -1206,6 +1245,109 @@ function normalizeStoredItem(item) {
   return normalized;
 }
 
+function cacheHasMatchingSku(cache, sku) {
+  const exactSku = String(sku || "").trim().toUpperCase();
+  const normalizedSku = normalizeSkuForPreorderMatch(exactSku);
+  return Boolean(exactSku && normalizedSku && (cache.byExactSku?.has(exactSku) || cache.byNormalizedSku?.has(normalizedSku)));
+}
+
+function clonePendingItem(item) {
+  return item && typeof item === "object" ? JSON.parse(JSON.stringify(item)) : {};
+}
+
+function catalogForAvailabilityStep(item, step) {
+  switch (step) {
+    case "style":
+      return styles;
+    case "collar":
+      return collars;
+    case "size":
+      return getSizeCatalog(item);
+    case "sleeve":
+      return getSleeveCatalog(item);
+    case "fit":
+      return availableFitsForItem(item);
+    case "pocket":
+      return pockets;
+    case "cuff":
+      return cuffs;
+    default:
+      return {};
+  }
+}
+
+function hasPreorderCompletion(cache, item) {
+  const working = ensurePendingItemDefaults(clonePendingItem(item));
+  const nextStep = orderSelectionSteps(working).find((step) => !isOrderStepComplete(working, step));
+
+  if (!nextStep) {
+    return cacheHasMatchingSku(
+      cache,
+      buildSku({
+        category: working.category?.name,
+        style: working.style?.name,
+        collar: working.collar?.name,
+        size: working.size?.id,
+        sleeve: working.sleeve?.name,
+        fit: working.fit?.name,
+        pocket: working.pocket?.name,
+        cuff: working.cuff?.name
+      })
+    );
+  }
+
+  for (const option of Object.values(catalogForAvailabilityStep(working, nextStep))) {
+    const candidate = clonePendingItem(working);
+    clearPendingItemFromStep(candidate, nextStep);
+    candidate[nextStep] = cloneOption(option);
+    ensurePendingItemDefaults(candidate);
+
+    if (hasPreorderCompletion(cache, candidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function availableOptionsForStep(pendingItem, step) {
+  const item = ensurePendingItemDefaults(clonePendingItem(pendingItem));
+  const catalog = catalogForAvailabilityStep(item, step);
+
+  try {
+    const cache = await getPreorderCache();
+    const available = {};
+
+    for (const [key, option] of Object.entries(catalog)) {
+      const candidate = clonePendingItem(item);
+      clearPendingItemFromStep(candidate, step);
+      candidate[step] = cloneOption(option);
+      ensurePendingItemDefaults(candidate);
+
+      if (hasPreorderCompletion(cache, candidate)) {
+        available[key] = option;
+      }
+    }
+
+    return Object.keys(available).length ? available : catalog;
+  } catch (_error) {
+    return catalog;
+  }
+}
+
+function optionNameList(options) {
+  return Object.values(options)
+    .map((option) => option?.name || option?.id)
+    .filter(Boolean)
+    .join(", ");
+}
+
+function pressPrompt(options) {
+  return Object.entries(options)
+    .map(([key, option]) => `Press ${key} for ${option.name}.`)
+    .join(" ");
+}
+
 function formatCartLine(item, index) {
   return `Item ${index + 1}. Quantity ${item.quantity}, ${itemSpeechParts(item).join(", ")}, fabric twill, line total ${calculateLineTotal(item)} dollars.`;
 }
@@ -1304,6 +1446,7 @@ function isAdminPagePath(pathname) {
 function isProtectedAdminApiPath(pathname) {
   return (
     pathname === "/api/orders" ||
+    pathname === "/api/orders/refund" ||
     pathname === "/api/admin/caller-discounts" ||
     pathname === "/api/admin/caller-discounts/clear" ||
     pathname === "/api/admin/settings" ||
@@ -1844,22 +1987,22 @@ function categoryMenuResponse(baseUrl) {
   ]);
 }
 
-function styleMenuResponse(baseUrl, pendingItem) {
+function styleMenuResponse(baseUrl, pendingItem, availableStyles = styles) {
   const categoryName = pendingItem?.category?.name || "that category";
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/style", pendingItem),
       input: "dtmf",
       numDigits: 1,
-      hints: "standard, khoss seedish",
-      prompt: `You selected ${categoryName}. Press 1 for standard shirts. Press 2 for khoss seedish shirts. Press star to go back.`
+      hints: optionNameList(availableStyles),
+      prompt: `You selected ${categoryName}. ${pressPrompt(availableStyles)} Press star to go back.`
     }),
     say("We did not receive a style selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
   ]);
 }
 
-function sizeMenuResponse(baseUrl, pendingItem) {
+function sizeMenuResponse(baseUrl, pendingItem, availableSizes = getSizeCatalog(pendingItem)) {
   if (isBoysItem(pendingItem)) {
     return twiml([
       gather(baseUrl, {
@@ -1867,9 +2010,8 @@ function sizeMenuResponse(baseUrl, pendingItem) {
         finishOnKey: "#",
         timeout: DEFAULT_SELECTION_TIMEOUT,
         input: "dtmf",
-        hints: "4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22",
-        prompt:
-          "Enter the boys size, then press pound. Available sizes are 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, and 22. Press star to go back."
+        hints: optionNameList(availableSizes),
+        prompt: `Enter the boys size, then press pound. Available sizes are ${optionNameList(availableSizes)}. Press star to go back.`
       }),
       say("We did not receive a size."),
       redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
@@ -1880,40 +2022,39 @@ function sizeMenuResponse(baseUrl, pendingItem) {
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/size", pendingItem),
       finishOnKey: "#",
-      timeout: DEFAULT_SELECTION_TIMEOUT,
+      timeout: 5,
       input: "dtmf",
-      hints: "14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18, 18.5, 19, 19.5, 20",
-      prompt:
-        "Enter neck size between 14 and 20. For size 14, press 1 then 4. For size 14 and a half, press 1, 4, 5. Use the same pattern for the other sizes. Press star to go back."
+      hints: optionNameList(availableSizes),
+      prompt: `Enter neck size, then press pound. Available sizes are ${optionNameList(availableSizes)}. For size 14 and a half, press 1, 4, 5. Use the same pattern for other half sizes. Press star to go back.`
     }),
     say("We did not receive a size."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
   ]);
 }
 
-function collarMenuResponse(baseUrl, pendingItem) {
+function collarMenuResponse(baseUrl, pendingItem, availableCollars = collars) {
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/collar", pendingItem),
       input: "dtmf",
       numDigits: 1,
-      hints: "spread, cutaway",
-      prompt: "Press 1 for spread. Press 2 for cutaway. Press star to go back."
+      hints: optionNameList(availableCollars),
+      prompt: `${pressPrompt(availableCollars)} Press star to go back.`
     }),
     say("We did not receive a collar selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
   ]);
 }
 
-function sleeveMenuResponse(baseUrl, sizeName, pendingItem) {
+function sleeveMenuResponse(baseUrl, sizeName, pendingItem, availableSleeves = getSleeveCatalog(pendingItem)) {
   if (isBoysItem(pendingItem)) {
     return twiml([
       gather(baseUrl, {
         action: withPendingState("/api/twilio/order/sleeve", pendingItem),
         input: "dtmf",
         numDigits: 1,
-        hints: "long sleeve, short sleeve",
-        prompt: `You selected size ${sizeName}. Press 1 for long sleeve. Press 2 for short sleeve. Press star to go back.`
+        hints: optionNameList(availableSleeves),
+        prompt: `You selected size ${sizeName}. ${pressPrompt(availableSleeves)} Press star to go back.`
       }),
       say("We did not receive a sleeve selection."),
       redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
@@ -1925,8 +2066,8 @@ function sleeveMenuResponse(baseUrl, sizeName, pendingItem) {
       action: withPendingState("/api/twilio/order/sleeve", pendingItem),
       input: "dtmf",
       numDigits: 2,
-      hints: "30, 31, 32, 33, 34, 35, 36, 37, short sleeve",
-      prompt: `You selected size ${sizeName}. Enter sleeve size between 30 and 37, or enter 0 for short sleeves. Press star to go back.`
+      hints: optionNameList(availableSleeves),
+      prompt: `You selected size ${sizeName}. Available sleeves are ${optionNameList(availableSleeves)}. Enter 0 for short sleeves. Press star to go back.`
     }),
     say("We did not receive a sleeve selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
@@ -1953,38 +2094,36 @@ function availableFitsForItem(pendingItem) {
   };
 }
 
-function fitMenuResponse(baseUrl, sleeveName, pendingItem) {
+function fitMenuResponse(baseUrl, sleeveName, pendingItem, availableFits = availableFitsForItem(pendingItem)) {
   const isBoys = isBoysItem(pendingItem);
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/fit", pendingItem),
       input: "dtmf",
       numDigits: 1,
-      hints: isBoys ? "super slim, extra slim, slim, classic, traditional, husky" : "super slim, extra slim, slim, classic",
-      prompt: isBoys
-        ? `You selected sleeve ${sleeveName}. Press 1 for super slim. Press 2 for extra slim. Press 3 for slim. Press 4 for classic. Press 5 for traditional. Press 6 for husky. Press star to go back.`
-        : `You selected sleeve ${sleeveName}. Press 1 for super slim. Press 2 for extra slim. Press 3 for slim. Press 4 for classic. Press star to go back.`
+      hints: optionNameList(availableFits),
+      prompt: `You selected sleeve ${sleeveName}. ${pressPrompt(availableFits)} Press star to go back.`
     }),
     say("We did not receive a fit selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
   ]);
 }
 
-function pocketMenuResponse(baseUrl, pendingItem) {
+function pocketMenuResponse(baseUrl, pendingItem, availablePockets = pockets) {
   return twiml([
     gather(baseUrl, {
       action: withPendingState("/api/twilio/order/pocket", pendingItem),
       input: "dtmf",
       numDigits: 1,
-      hints: "yes, no, pocket",
-      prompt: "Press 1 for with pocket. Press 2 for without pocket. Press star to go back."
+      hints: optionNameList(availablePockets),
+      prompt: `${pressPrompt(availablePockets)} Press star to go back.`
     }),
     say("We did not receive a pocket selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
   ]);
 }
 
-function cuffMenuResponse(baseUrl, sleeveName, pendingItem) {
+function cuffMenuResponse(baseUrl, sleeveName, pendingItem, availableCuffs = cuffs) {
   if (sleeveId(sleeveName) === "short-sleeve") {
     return quantityMenuResponse(baseUrl, describePendingItem(pendingItem), pendingItem);
   }
@@ -1994,8 +2133,8 @@ function cuffMenuResponse(baseUrl, sleeveName, pendingItem) {
       action: withPendingState("/api/twilio/order/cuff", pendingItem),
       input: "dtmf",
       numDigits: 1,
-      hints: "button, french",
-      prompt: "Press 1 for button cuff. Press 2 for french cuff. Press star to go back."
+      hints: optionNameList(availableCuffs),
+      prompt: `${pressPrompt(availableCuffs)} Press star to go back.`
     }),
     say("We did not receive a cuff selection."),
     redirect(baseUrl, withPendingState("/api/twilio/order/current", pendingItem))
@@ -2142,7 +2281,7 @@ function postAddMenuResponse(baseUrl, session, addedItem) {
 }
 
 function cartReturnPath(context) {
-  return context === "postadd" ? "/api/twilio/order/summary" : "/api/twilio/voice";
+  return context === "postadd" || context === "summary" ? "/api/twilio/order/summary" : "/api/twilio/voice";
 }
 
 function buildCartPlaybackRoute(context, index, announce = false) {
@@ -2277,30 +2416,30 @@ function normalizeSizeInput(input, pendingItem) {
   return mapping[compact] || "";
 }
 
-function orderMenuResponseForStep(step, baseUrl, item) {
+async function orderMenuResponseForStep(step, baseUrl, item) {
   switch (step) {
     case "category":
       return categoryMenuResponse(baseUrl);
     case "style":
-      return styleMenuResponse(baseUrl, item);
+      return styleMenuResponse(baseUrl, item, await availableOptionsForStep(item, "style"));
     case "collar":
-      return collarMenuResponse(baseUrl, item);
+      return collarMenuResponse(baseUrl, item, await availableOptionsForStep(item, "collar"));
     case "size":
-      return sizeMenuResponse(baseUrl, item);
+      return sizeMenuResponse(baseUrl, item, await availableOptionsForStep(item, "size"));
     case "sleeve":
-      return sleeveMenuResponse(baseUrl, item.size.name, item);
+      return sleeveMenuResponse(baseUrl, item.size.name, item, await availableOptionsForStep(item, "sleeve"));
     case "fit":
-      return fitMenuResponse(baseUrl, item.sleeve.name, item);
+      return fitMenuResponse(baseUrl, item.sleeve.name, item, await availableOptionsForStep(item, "fit"));
     case "pocket":
-      return pocketMenuResponse(baseUrl, item);
+      return pocketMenuResponse(baseUrl, item, await availableOptionsForStep(item, "pocket"));
     case "cuff":
-      return cuffMenuResponse(baseUrl, item.sleeve.name, item);
+      return cuffMenuResponse(baseUrl, item.sleeve.name, item, await availableOptionsForStep(item, "cuff"));
     default:
       return categoryMenuResponse(baseUrl);
   }
 }
 
-function currentOrderMenuResponse(baseUrl, session) {
+async function currentOrderMenuResponse(baseUrl, session) {
   const item = ensurePendingItemDefaults(session.pendingItem || {});
   const nextStep = orderSelectionSteps(item).find((step) => !isOrderStepComplete(item, step));
 
@@ -2315,7 +2454,7 @@ function currentOrderMenuResponse(baseUrl, session) {
   return categoryMenuResponse(baseUrl);
 }
 
-function goToPreviousOrderMenu(baseUrl, session) {
+async function goToPreviousOrderMenu(baseUrl, session) {
   if (!session.pendingItem) {
     return categoryMenuResponse(baseUrl);
   }
@@ -2467,7 +2606,7 @@ async function handleMainMenu(req, res, baseUrl) {
       return;
     }
 
-    xml(res, 200, cartPlaybackResponse(baseUrl, session, "voice", 0, true));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "summary", 0, true));
     return;
   }
 
@@ -2826,6 +2965,163 @@ async function handleClearCallerDiscountCode(req, res) {
   json(res, 200, { ok: true, cleared });
 }
 
+function normalizeStripeSecretKey() {
+  return String(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY || "").trim();
+}
+
+function stripeRefundAmount(orderRecord) {
+  const paymentAmount = Number(orderRecord?.payment?.amount || 0);
+  if (paymentAmount > 0) {
+    return toMoneyAmount(paymentAmount);
+  }
+
+  return toMoneyAmount(orderRecord?.totalPrice || 0);
+}
+
+function stripeAmountInCents(amount) {
+  return Math.round(toMoneyAmount(amount) * 100);
+}
+
+function stripeRefundIntentForOrder(orderRecord) {
+  return (
+    stripePaymentIntentFromValue(orderRecord?.stripePaymentIntentId) ||
+    stripePaymentIntentFromValue(orderRecord?.payment?.stripePaymentIntentId) ||
+    stripePaymentIntentFromValue(orderRecord?.payment?.paymentIntentId) ||
+    stripePaymentIntentFromValue(orderRecord?.payment?.confirmationCode)
+  );
+}
+
+function stripeRefundChargeForOrder(orderRecord) {
+  return stripeChargeFromValue(orderRecord?.payment?.confirmationCode) || stripeChargeFromValue(orderRecord?.payment?.processorReference);
+}
+
+async function createStripeRefund(orderRecord) {
+  const secretKey = normalizeStripeSecretKey();
+  if (!secretKey) {
+    throw new Error("Missing STRIPE_SECRET_KEY.");
+  }
+
+  const paymentIntent = stripeRefundIntentForOrder(orderRecord);
+  const charge = paymentIntent ? "" : stripeRefundChargeForOrder(orderRecord);
+  if (!paymentIntent && !charge) {
+    throw new Error("No Stripe PaymentIntent or charge was saved for this order.");
+  }
+
+  const amount = stripeRefundAmount(orderRecord);
+  const cents = stripeAmountInCents(amount);
+  if (cents <= 0) {
+    throw new Error("This order does not have a refundable Stripe amount.");
+  }
+
+  const params = new URLSearchParams({
+    amount: String(cents),
+    reason: "requested_by_customer",
+    "metadata[ivr_order_id]": String(orderRecord.id || ""),
+    "metadata[shopify_order]": String(orderRecord.shopifyOrder?.name || orderRecord.shopifyOrderNumber || "")
+  });
+  if (paymentIntent) {
+    params.set("payment_intent", paymentIntent);
+  } else {
+    params.set("charge", charge);
+  }
+
+  const response = await fetch("https://api.stripe.com/v1/refunds", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: params
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `Stripe refund failed with ${response.status}.`);
+  }
+
+  return {
+    id: String(payload.id || "").trim(),
+    status: String(payload.status || "").trim(),
+    amount: toMoneyAmount(Number(payload.amount || cents) / 100),
+    currency: String(payload.currency || orderRecord.currencyCode || "usd").toUpperCase(),
+    paymentIntent: String(payload.payment_intent || paymentIntent).trim(),
+    charge: String(payload.charge || charge || "").trim(),
+    createdAt: new Date().toISOString()
+  };
+}
+
+async function handleRefundOrder(req, res) {
+  const form = await parseFormBody(req);
+  const orderId = String(form.orderId || "").trim();
+
+  if (!orderId) {
+    json(res, 400, { error: "Order id is required." });
+    return;
+  }
+
+  const orders = await loadOrders();
+  const orderRecord = orders.find((order) => String(order?.id || "") === orderId);
+  if (!orderRecord) {
+    json(res, 404, { error: "Order not found." });
+    return;
+  }
+
+  if (orderRecord.stripeRefund?.id) {
+    json(res, 409, { error: "This order is already marked refunded.", order: orderRecord });
+    return;
+  }
+
+  let stripeRefund;
+  try {
+    stripeRefund = await createStripeRefund(orderRecord);
+  } catch (error) {
+    json(res, 400, { error: String(error?.message || "Stripe refund failed.") });
+    return;
+  }
+
+  const updatedOrder = {
+    ...orderRecord,
+    stripeRefund,
+    refundedAt: stripeRefund.createdAt,
+    refundStatus: stripeRefund.status || "succeeded",
+    payment: {
+      ...(orderRecord.payment && typeof orderRecord.payment === "object" ? orderRecord.payment : {}),
+      refunded: true,
+      refundedAt: stripeRefund.createdAt,
+      refundId: stripeRefund.id
+    }
+  };
+
+  if (updatedOrder.shopifyOrder?.id) {
+    try {
+      const shopifyRefundMark = await cancelAndMarkShopifyOrderRefunded(updatedOrder, {
+        amount: stripeRefund.amount,
+        currency: stripeRefund.currency,
+        stripeRefundId: stripeRefund.id
+      });
+      updatedOrder.shopifyRefundMark = shopifyRefundMark;
+      updatedOrder.shopifyOrder = {
+        ...updatedOrder.shopifyOrder,
+        cancelled: true,
+        cancelledAt: shopifyRefundMark.cancelledAt,
+        financialStatus: shopifyRefundMark.financialStatus || "REFUNDED",
+        refundStatus: shopifyRefundMark.refundStatus || "REFUNDED"
+      };
+    } catch (error) {
+      updatedOrder.shopifyRefundMarkError = String(error?.message || "").trim() || "Unknown Shopify refund marking error.";
+    }
+  }
+
+  await saveOrder(updatedOrder);
+  json(res, 200, {
+    ok: true,
+    order: {
+      ...updatedOrder,
+      items: Array.isArray(updatedOrder.items) ? updatedOrder.items.map(normalizeStoredItem) : []
+    }
+  });
+}
+
 async function handleTestReset(req, res) {
   const form = await parseFormBody(req);
   await resetSessionState(form.CallSid, form.From);
@@ -2985,7 +3281,7 @@ async function handleCurrentOrderMenu(req, res, baseUrl) {
   pendingItemFromRequest(req, session);
   ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
-  xml(res, 200, currentOrderMenuResponse(baseUrl, session));
+  xml(res, 200, await currentOrderMenuResponse(baseUrl, session));
 }
 
 async function handlePreviousOrderMenu(req, res, baseUrl) {
@@ -2993,7 +3289,7 @@ async function handlePreviousOrderMenu(req, res, baseUrl) {
   const { key, session } = await getSession(form.CallSid, form.From);
   pendingItemFromRequest(req, session);
   ensurePendingItemDefaults(session.pendingItem);
-  const response = goToPreviousOrderMenu(baseUrl, session);
+  const response = await goToPreviousOrderMenu(baseUrl, session);
   await persistSessionState(key, session);
   xml(res, 200, response);
 }
@@ -3003,7 +3299,7 @@ function wantsPreviousMenu(form) {
 }
 
 async function respondWithPreviousOrderMenu(res, baseUrl, key, session) {
-  const response = goToPreviousOrderMenu(baseUrl, session);
+  const response = await goToPreviousOrderMenu(baseUrl, session);
   await persistSessionState(key, session);
   xml(res, 200, response);
 }
@@ -3051,7 +3347,7 @@ async function handleCategorySelection(req, res, baseUrl) {
 
   session.pendingItem = { category };
   await persistSessionState(key, session);
-  xml(res, 200, styleMenuResponse(baseUrl, session.pendingItem));
+  xml(res, 200, await orderMenuResponseForStep("style", baseUrl, session.pendingItem));
 }
 
 async function handleStyleSelection(req, res, baseUrl) {
@@ -3065,7 +3361,7 @@ async function handleStyleSelection(req, res, baseUrl) {
   }
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, styleMenuResponse(baseUrl, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("style", baseUrl, session.pendingItem));
     return;
   }
 
@@ -3077,8 +3373,9 @@ async function handleStyleSelection(req, res, baseUrl) {
     return;
   }
 
-  if (!style) {
-    xml(res, 200, twiml([say("Invalid entry. Try again."), twimlBody(styleMenuResponse(baseUrl, session.pendingItem))]));
+  const availableStyles = await availableOptionsForStep(session.pendingItem, "style");
+  if (!style || !availableStyles[selection]) {
+    xml(res, 200, twiml([say("That option is not available. Try again."), twimlBody(styleMenuResponse(baseUrl, session.pendingItem, availableStyles))]));
     return;
   }
 
@@ -3088,11 +3385,11 @@ async function handleStyleSelection(req, res, baseUrl) {
   await persistSessionState(key, session);
 
   if (session.pendingItem.collar) {
-    xml(res, 200, sizeMenuResponse(baseUrl, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("size", baseUrl, session.pendingItem));
     return;
   }
 
-  xml(res, 200, collarMenuResponse(baseUrl, session.pendingItem));
+  xml(res, 200, await orderMenuResponseForStep("collar", baseUrl, session.pendingItem));
 }
 
 async function handleCollarSelection(req, res, baseUrl) {
@@ -3107,7 +3404,7 @@ async function handleCollarSelection(req, res, baseUrl) {
   }
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, collarMenuResponse(baseUrl, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("collar", baseUrl, session.pendingItem));
     return;
   }
 
@@ -3121,12 +3418,13 @@ async function handleCollarSelection(req, res, baseUrl) {
   }
 
   if (!rawSelection) {
-    xml(res, 200, collarMenuResponse(baseUrl, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("collar", baseUrl, session.pendingItem));
     return;
   }
 
-  if (!collar) {
-    xml(res, 200, twiml([say("Invalid entry. Try again."), twimlBody(collarMenuResponse(baseUrl, session.pendingItem))]));
+  const availableCollars = await availableOptionsForStep(session.pendingItem, "collar");
+  if (!collar || !availableCollars[selection]) {
+    xml(res, 200, twiml([say("That option is not available. Try again."), twimlBody(collarMenuResponse(baseUrl, session.pendingItem, availableCollars))]));
     return;
   }
 
@@ -3134,7 +3432,7 @@ async function handleCollarSelection(req, res, baseUrl) {
   session.pendingItem.collar = collar;
   ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
-  xml(res, 200, sizeMenuResponse(baseUrl, session.pendingItem));
+  xml(res, 200, await orderMenuResponseForStep("size", baseUrl, session.pendingItem));
 }
 
 async function handleSizeSelection(req, res, baseUrl) {
@@ -3149,7 +3447,7 @@ async function handleSizeSelection(req, res, baseUrl) {
   }
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, sizeMenuResponse(baseUrl, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("size", baseUrl, session.pendingItem));
     return;
   }
 
@@ -3163,12 +3461,13 @@ async function handleSizeSelection(req, res, baseUrl) {
   }
 
   if (!rawInput) {
-    xml(res, 200, sizeMenuResponse(baseUrl, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("size", baseUrl, session.pendingItem));
     return;
   }
 
-  if (!size) {
-    xml(res, 200, twiml([say("Invalid entry. Try again."), twimlBody(sizeMenuResponse(baseUrl, session.pendingItem))]));
+  const availableSizes = await availableOptionsForStep(session.pendingItem, "size");
+  if (!size || !Object.values(availableSizes).some((entry) => entry.id === sizeName)) {
+    xml(res, 200, twiml([say("That size is not available. Try again."), twimlBody(sizeMenuResponse(baseUrl, session.pendingItem, availableSizes))]));
     return;
   }
 
@@ -3176,7 +3475,7 @@ async function handleSizeSelection(req, res, baseUrl) {
   session.pendingItem.size = size;
   ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
-  xml(res, 200, sleeveMenuResponse(baseUrl, size.name, session.pendingItem));
+  xml(res, 200, await orderMenuResponseForStep("sleeve", baseUrl, session.pendingItem));
 }
 
 async function handleSleeveSelection(req, res, baseUrl) {
@@ -3191,7 +3490,7 @@ async function handleSleeveSelection(req, res, baseUrl) {
   }
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, sleeveMenuResponse(baseUrl, session.pendingItem.size.name, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("sleeve", baseUrl, session.pendingItem));
     return;
   }
 
@@ -3218,11 +3517,13 @@ async function handleSleeveSelection(req, res, baseUrl) {
     return;
   }
 
-  if (!sleeve) {
+  const availableSleeves = await availableOptionsForStep(session.pendingItem, "sleeve");
+  const sleeveAvailable = Object.values(availableSleeves).some((entry) => entry.id === sleeve?.id);
+  if (!sleeve || !sleeveAvailable) {
     xml(
       res,
       200,
-      twiml([say("Invalid entry. Try again."), twimlBody(sleeveMenuResponse(baseUrl, session.pendingItem.size.name, session.pendingItem))])
+      twiml([say("That sleeve is not available. Try again."), twimlBody(sleeveMenuResponse(baseUrl, session.pendingItem.size.name, session.pendingItem, availableSleeves))])
     );
     return;
   }
@@ -3231,7 +3532,7 @@ async function handleSleeveSelection(req, res, baseUrl) {
   session.pendingItem.sleeve = sleeve;
   ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
-  xml(res, 200, fitMenuResponse(baseUrl, sleeve.name, session.pendingItem));
+  xml(res, 200, await orderMenuResponseForStep("fit", baseUrl, session.pendingItem));
 }
 
 async function handleFitSelection(req, res, baseUrl) {
@@ -3246,12 +3547,13 @@ async function handleFitSelection(req, res, baseUrl) {
   }
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, fitMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("fit", baseUrl, session.pendingItem));
     return;
   }
 
   const selection = normalizeFitSelection(form.Digits || form.SpeechResult);
-  const fit = availableFitsForItem(session.pendingItem)[selection];
+  const availableFits = await availableOptionsForStep(session.pendingItem, "fit");
+  const fit = availableFits[selection];
 
   if (!session.pendingItem || !session.pendingItem.sleeve) {
     xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
@@ -3262,7 +3564,7 @@ async function handleFitSelection(req, res, baseUrl) {
     xml(
       res,
       200,
-      twiml([say("Invalid entry. Try again."), twimlBody(fitMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem))])
+      twiml([say("That fit is not available. Try again."), twimlBody(fitMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem, availableFits))])
     );
     return;
   }
@@ -3271,7 +3573,7 @@ async function handleFitSelection(req, res, baseUrl) {
   session.pendingItem.fit = fit;
   ensurePendingItemDefaults(session.pendingItem);
   await persistSessionState(key, session);
-  xml(res, 200, currentOrderMenuResponse(baseUrl, session));
+  xml(res, 200, await currentOrderMenuResponse(baseUrl, session));
 }
 
 async function handlePocketSelection(req, res, baseUrl) {
@@ -3286,12 +3588,13 @@ async function handlePocketSelection(req, res, baseUrl) {
   }
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, pocketMenuResponse(baseUrl, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("pocket", baseUrl, session.pendingItem));
     return;
   }
 
   const selection = normalizePocketSelection(form.Digits || form.SpeechResult);
-  const pocket = pockets[selection];
+  const availablePockets = await availableOptionsForStep(session.pendingItem, "pocket");
+  const pocket = availablePockets[selection];
 
   if (!session.pendingItem || !session.pendingItem.fit) {
     xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
@@ -3299,7 +3602,7 @@ async function handlePocketSelection(req, res, baseUrl) {
   }
 
   if (!pocket) {
-    xml(res, 200, twiml([say("Invalid entry. Try again."), twimlBody(pocketMenuResponse(baseUrl, session.pendingItem))]));
+    xml(res, 200, twiml([say("That pocket option is not available. Try again."), twimlBody(pocketMenuResponse(baseUrl, session.pendingItem, availablePockets))]));
     return;
   }
 
@@ -3313,7 +3616,7 @@ async function handlePocketSelection(req, res, baseUrl) {
     return;
   }
 
-  xml(res, 200, currentOrderMenuResponse(baseUrl, session));
+  xml(res, 200, await currentOrderMenuResponse(baseUrl, session));
 }
 
 async function handleCuffSelection(req, res, baseUrl) {
@@ -3327,12 +3630,13 @@ async function handleCuffSelection(req, res, baseUrl) {
   }
 
   if (isRepeatPromptSubmission(form)) {
-    xml(res, 200, cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem));
+    xml(res, 200, await orderMenuResponseForStep("cuff", baseUrl, session.pendingItem));
     return;
   }
 
   const selection = normalizeCuffSelection(form.Digits || form.SpeechResult);
-  const cuff = cuffs[selection];
+  const availableCuffs = await availableOptionsForStep(session.pendingItem, "cuff");
+  const cuff = availableCuffs[selection];
 
   if (!session.pendingItem || !session.pendingItem.pocket) {
     xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/current"));
@@ -3343,7 +3647,7 @@ async function handleCuffSelection(req, res, baseUrl) {
     xml(
       res,
       200,
-      twiml([say("Invalid entry. Try again."), twimlBody(cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem))])
+      twiml([say("That cuff is not available. Try again."), twimlBody(cuffMenuResponse(baseUrl, session.pendingItem.sleeve.name, session.pendingItem, availableCuffs))])
     );
     return;
   }
@@ -3776,6 +4080,10 @@ async function routeRequest(req, res, pathname, baseUrl) {
       json(res, 200, []);
     }
     return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/orders/refund") {
+    return handleRefundOrder(req, res);
   }
 
   if (req.method === "GET" && pathname === "/api/admin/caller-discounts") {

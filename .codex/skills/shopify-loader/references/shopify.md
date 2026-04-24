@@ -193,6 +193,7 @@ Current implementation notes:
   - boys chassidish preorder variants are pointy and with pocket
   - boys SKU shapes use a separate `SP` middle token with a size-only final segment, for example `BTPC-ROL-SS-PKT-SP-4`
   - mens short-sleeve preorder variants also exist, so do not prune short sleeve from the IVR
+- The IVR option menus should filter each next choice against the cached preorder variant SKUs. For example, after a caller selects a neck size/sleeve/fit/pocket combination where french cuff has no matching preorder SKU, the cuff menu should only offer button cuff and should reject french cuff if entered.
 
 Live verification on April 14, 2026:
 
@@ -220,6 +221,7 @@ Current implementation:
   - `customAttributes` including caller phone, call sid, and local IVR order id
   - optional `discountCodes` when the caller provides one
 - optionally complete the draft order into a real Shopify order when the persisted `submitShopifyOrder` setting is enabled
+- dashboard cancel/refund first refunds the stored Stripe PaymentIntent through Stripe, then creates a manual Shopify refund record with Admin GraphQL `refundCreate`, then cancels the order with `orderCancel` and `refundMethod.originalPaymentMethodsRefund: false` so Shopify does not send a second refund through its original payment methods
 
 Submission toggle behavior:
 

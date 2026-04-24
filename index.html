@@ -6,17 +6,18 @@
     <title>Rebbi Shirt Orders</title>
     <style>
       :root {
-        --bg: #f5f8ff;
+        --bg: #f6f4ef;
         --panel: #ffffff;
-        --panel-alt: #eef4ff;
-        --ink: #314156;
-        --muted: #66758a;
-        --line: #c8d7ee;
-        --accent: #6d9ee8;
-        --accent-deep: #24478f;
-        --accent-soft: #dfe9ff;
-        --good: #24478f;
-        --shadow: 0 22px 60px rgba(36, 71, 143, 0.12);
+        --panel-soft: #f8faf8;
+        --ink: #1f2933;
+        --muted: #667085;
+        --line: #d8ddd5;
+        --accent: #0f766e;
+        --accent-soft: #dff4ef;
+        --warn: #b45309;
+        --danger: #b42318;
+        --danger-soft: #fee4e2;
+        --shadow: 0 14px 34px rgba(31, 41, 51, 0.08);
       }
 
       * {
@@ -25,155 +26,24 @@
 
       body {
         margin: 0;
-        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
         color: var(--ink);
         background: var(--bg);
+        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
       }
 
-      .shell {
-        max-width: 1180px;
-        margin: 0 auto;
-        padding: 32px 20px 56px;
-      }
-
-      .hero {
-        display: grid;
-        gap: 22px;
-        padding: 22px;
-        border: 1px solid var(--line);
-        border-radius: 22px;
-        background: var(--panel);
-        box-shadow: 0 10px 30px rgba(36, 71, 143, 0.06);
-      }
-
-      .brand {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        gap: 20px;
-        flex-wrap: wrap;
-        padding-bottom: 18px;
-        border-bottom: 1px solid var(--line);
-      }
-
-      .brand-copy {
-        display: grid;
-        gap: 4px;
-      }
-
-      .logo {
-        display: block;
-        width: min(220px, 42vw);
-        height: auto;
-      }
-
-      .brand-kicker {
-        margin: 0;
-        font-size: 0.78rem;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--accent-deep);
-      }
-
-      .brand-title {
-        margin: 0;
-        font-size: 1.5rem;
-        line-height: 1;
-        font-weight: 650;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(1.8rem, 4vw, 3rem);
-        line-height: 1;
-        font-weight: 700;
-      }
-
-      .hero p {
-        margin: 0;
-        max-width: 720px;
-        color: var(--muted);
-        font-size: 1.02rem;
-      }
-
-      .stats {
-        display: grid;
-        gap: 14px;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        margin-top: 22px;
-      }
-
-      .stat {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        padding: 18px;
-      }
-
-      .stat-label {
-        color: var(--muted);
-        font-size: 0.84rem;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-      }
-
-      .stat-value {
-        font-size: 2rem;
-        font-weight: 700;
-      }
-
-      .toolbar {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        justify-content: space-between;
-        margin: 24px 0 18px;
-        flex-wrap: wrap;
-      }
-
-      .toolbar-right {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-
-      .toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 14px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: var(--panel);
-        color: var(--ink);
-      }
-
-      .toggle input {
-        margin: 0;
-        min-width: 18px;
-        min-height: 18px;
-      }
-
-      .toggle-copy {
-        display: grid;
-        gap: 2px;
-      }
-
-      .toggle-note {
-        font-size: 0.8rem;
-        color: var(--muted);
+      button,
+      input {
+        font: inherit;
       }
 
       button {
         border: 0;
-        border-radius: 999px;
-        background: var(--accent-deep);
+        border-radius: 8px;
+        background: var(--accent);
         color: white;
-        padding: 11px 16px;
-        font: inherit;
+        padding: 10px 13px;
         cursor: pointer;
+        min-height: 40px;
       }
 
       button.secondary {
@@ -182,356 +52,519 @@
         border: 1px solid var(--line);
       }
 
-      .status {
-        font-size: 0.95rem;
+      button.danger {
+        background: var(--danger);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+
+      .shell {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 24px 18px 44px;
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: auto minmax(260px, 1fr) auto;
+        gap: 18px;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+
+      .logo {
+        display: block;
+        width: min(190px, 36vw);
+        height: auto;
+      }
+
+      .title h1 {
+        margin: 0;
+        font-size: 1.55rem;
+        line-height: 1.1;
+      }
+
+      .title p {
+        margin: 5px 0 0;
         color: var(--muted);
+      }
+
+      .menu {
+        position: relative;
+        justify-self: end;
+      }
+
+      .menu summary {
+        list-style: none;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 10px 13px;
+        min-height: 40px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .menu summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .menu[open] summary {
+        border-color: var(--accent);
+      }
+
+      .menu-panel {
+        position: absolute;
+        right: 0;
+        z-index: 10;
+        width: min(420px, calc(100vw - 36px));
+        margin-top: 8px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        display: grid;
+        gap: 12px;
+      }
+
+      .menu-actions,
+      .search-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .toggle {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .toggle input {
+        width: 18px;
+        height: 18px;
+        margin: 2px 0 0;
+      }
+
+      .toggle-copy {
+        display: grid;
+        gap: 2px;
+      }
+
+      .toggle-note,
+      .status,
+      .muted {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .summary-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-bottom: 16px;
+      }
+
+      .stat {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+      }
+
+      .stat-label {
+        color: var(--muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+      }
+
+      .stat-value {
+        margin-top: 7px;
+        font-size: 1.45rem;
+        font-weight: 800;
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: minmax(220px, 420px) 1fr auto;
+        gap: 12px;
+        align-items: center;
+        margin: 0 0 16px;
+      }
+
+      .search {
+        width: 100%;
+        min-height: 42px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--ink);
+        padding: 0 12px;
+      }
+
+      .dashboard {
+        display: grid;
+        grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
       }
 
       .orders {
         display: grid;
-        gap: 16px;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
       }
 
+      .order-card,
+      .detail-panel,
       .saved-discounts {
-        margin-bottom: 18px;
-        padding: 18px;
         border: 1px solid var(--line);
-        border-radius: 20px;
+        border-radius: 8px;
         background: var(--panel);
-        box-shadow: 0 10px 30px rgba(36, 71, 143, 0.05);
+        box-shadow: var(--shadow);
       }
 
-      .saved-head {
+      .order-card {
+        width: 100%;
+        display: grid;
+        gap: 12px;
+        padding: 13px;
+        text-align: left;
+        color: var(--ink);
+        cursor: pointer;
+      }
+
+      .order-card:hover,
+      .order-card.active {
+        border-color: var(--accent);
+      }
+
+      .card-top {
         display: flex;
         justify-content: space-between;
-        gap: 12px;
-        align-items: end;
-        flex-wrap: wrap;
-        margin-bottom: 14px;
+        gap: 10px;
+        align-items: start;
       }
 
-      .saved-head h2 {
-        margin: 0;
-        font-size: 1.05rem;
+      .order-number {
+        font-size: 1.04rem;
+        font-weight: 800;
       }
 
-      .saved-head p {
-        margin: 4px 0 0;
+      .card-meta {
+        display: grid;
+        gap: 4px;
         color: var(--muted);
         font-size: 0.9rem;
       }
 
-      .saved-list {
-        display: grid;
-        gap: 10px;
-      }
-
-      .saved-empty {
-        margin: 0;
-        color: var(--muted);
-        font-size: 0.92rem;
-      }
-
-      .saved-card {
+      .pill-row {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
         flex-wrap: wrap;
-        padding: 12px 14px;
-        border-radius: 14px;
+        gap: 6px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        border-radius: 999px;
+        background: var(--panel-soft);
         border: 1px solid var(--line);
-        background: linear-gradient(180deg, rgba(238, 244, 255, 0.7), rgba(255, 255, 255, 0.95));
-      }
-
-      .saved-meta {
-        display: grid;
-        gap: 4px;
-      }
-
-      .saved-phone {
+        padding: 4px 9px;
+        color: var(--muted);
+        font-size: 0.8rem;
         font-weight: 700;
       }
 
-      .saved-code {
-        color: var(--accent-deep);
-        font-size: 0.92rem;
+      .pill.refunded {
+        color: var(--danger);
+        background: var(--danger-soft);
+        border-color: #fecdca;
       }
 
-      .saved-updated {
-        color: var(--muted);
-        font-size: 0.8rem;
+      .card-actions {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
       }
 
-      .empty {
-        border: 1px dashed var(--line);
-        background: var(--panel);
-        border-radius: 22px;
-        padding: 40px 24px;
-        text-align: center;
-        color: var(--muted);
+      .detail-panel {
+        min-height: 420px;
+        padding: 16px;
       }
 
-      .order {
-        border: 1px solid var(--line);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.98)),
-          var(--panel);
-        border-radius: 20px;
-        padding: 18px;
-        box-shadow: 0 14px 30px rgba(36, 71, 143, 0.08);
+      .detail-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+        gap: 16px;
       }
 
-      .order-head {
+      .detail-head {
         display: flex;
         justify-content: space-between;
         gap: 12px;
-        align-items: flex-start;
-        flex-wrap: wrap;
+        align-items: start;
         margin-bottom: 14px;
       }
 
-      .order-meta {
-        display: grid;
-        gap: 4px;
-      }
-
-      .order-id {
-        font-size: 0.75rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-
-      .order-total {
-        margin: 14px 0 0;
-        padding-top: 12px;
-        border-top: 1px solid rgba(200, 215, 238, 0.9);
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--accent-deep);
-      }
-
-      .order-time {
-        color: var(--muted);
-        font-size: 0.86rem;
-      }
-
-      .caller {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 7px 11px;
-        border-radius: 999px;
-        background: linear-gradient(135deg, var(--accent-soft), #edf3ff);
-        color: var(--accent-deep);
-        font-size: 0.86rem;
-        font-weight: 600;
-      }
-
-      .shipping {
-        display: grid;
-        gap: 6px;
-        margin: 0 0 14px;
-        padding: 12px 13px;
-        border-radius: 14px;
-        border: 1px solid rgba(109, 158, 232, 0.24);
-        background: rgba(238, 244, 255, 0.72);
-      }
-
-      .shipping-title {
-        font-size: 0.78rem;
-        font-weight: 800;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--accent-deep);
-      }
-
-      .shipping-lines,
-      .shipping-meta {
+      .detail-title {
         margin: 0;
+        font-size: 1.25rem;
+      }
+
+      .section-title {
+        margin: 0 0 8px;
+        font-size: 0.9rem;
+        text-transform: uppercase;
         color: var(--muted);
-        font-size: 0.86rem;
-        line-height: 1.4;
       }
 
-      .shipping-lines {
-        color: var(--ink);
-        font-weight: 600;
-      }
-
-      .items {
+      .item-list {
         display: grid;
         gap: 10px;
       }
 
       .item {
-        padding: 12px 13px;
-        border-radius: 12px;
-        background: linear-gradient(180deg, rgba(238, 244, 255, 0.95), rgba(255, 255, 255, 0.9));
-        border: 1px solid rgba(109, 158, 232, 0.2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-soft);
+        padding: 12px;
       }
 
-      .item-top {
+      .item-top,
+      .line {
         display: flex;
         justify-content: space-between;
         gap: 10px;
         flex-wrap: wrap;
-        margin-bottom: 6px;
       }
 
       .item-title {
-        font-weight: 700;
-        font-size: 0.96rem;
-        line-height: 1.25;
+        font-weight: 800;
       }
 
       .qty {
-        color: white;
-        font-weight: 700;
-        font-size: 0.8rem;
-        background: var(--accent-deep);
-        border-radius: 999px;
-        padding: 4px 8px;
+        color: var(--accent);
+        font-weight: 800;
+      }
+
+      .item-line,
+      .side p {
+        margin: 7px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.4;
       }
 
       .chips {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
-      }
-
-      .item-line {
-        margin: 6px 0 0;
-        font-size: 0.82rem;
-        color: var(--muted);
+        margin-top: 9px;
       }
 
       .chip {
         border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 5px 8px;
+        border-radius: 8px;
+        padding: 5px 7px;
         font-size: 0.78rem;
-        background: rgba(255, 255, 255, 0.88);
+        background: var(--panel);
       }
 
-      @media (max-width: 1040px) {
-        .orders {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+      .side {
+        display: grid;
+        gap: 12px;
+      }
+
+      .side-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: var(--panel-soft);
+      }
+
+      .total {
+        margin: 14px 0 0;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+        font-weight: 800;
+        color: var(--accent);
+      }
+
+      .saved-discounts {
+        margin-top: 12px;
+        padding: 12px;
+        box-shadow: none;
+      }
+
+      .saved-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .saved-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .empty {
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 28px 18px;
+        color: var(--muted);
+        text-align: center;
+        background: var(--panel);
+      }
+
+      @media (max-width: 980px) {
+        .topbar,
+        .toolbar,
+        .dashboard,
+        .detail-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .menu {
+          justify-self: stretch;
+        }
+
+        .menu summary {
+          width: 100%;
+          text-align: center;
+        }
+
+        .menu-panel {
+          left: 0;
+          right: auto;
         }
       }
 
       @media (max-width: 720px) {
         .shell {
-          padding: 18px 14px 40px;
+          padding: 18px 12px 36px;
         }
 
-        .orders {
-          grid-template-columns: 1fr;
-        }
-
-        .hero,
-        .order {
-          border-radius: 22px;
-          padding: 16px;
+        .summary-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .logo {
-          width: min(170px, 58vw);
+          width: min(160px, 58vw);
         }
       }
     </style>
   </head>
   <body>
     <main class="shell">
-      <section class="hero">
-        <div class="brand">
-          <img class="logo" id="brand-logo" alt="A.I. Stone" />
-          <div class="brand-copy">
-            <p class="brand-kicker">Order Desk</p>
-            <p class="brand-title">Phone Orders Dashboard</p>
+      <header class="topbar">
+        <img class="logo" id="brand-logo" alt="A.I. Stone" />
+        <div class="title">
+          <h1>Phone Orders Dashboard</h1>
+          <p id="status">Loading orders...</p>
+        </div>
+        <details class="menu" id="settings-menu">
+          <summary>Menu</summary>
+          <div class="menu-panel">
+            <div class="menu-actions">
+              <button class="secondary" id="testivr-button" type="button">Test IVR</button>
+              <button class="secondary" id="refresh-button" type="button">Refresh</button>
+              <button class="secondary" id="logout-button" type="button">Log out</button>
+            </div>
+            <label class="toggle" for="submit-order-toggle">
+              <input type="checkbox" id="submit-order-toggle" />
+              <span class="toggle-copy">
+                <strong>Submit Shopify orders</strong>
+                <span class="toggle-note" id="submit-order-note">Loading current setting...</span>
+              </span>
+            </label>
+            <label class="toggle" for="skip-cc-toggle">
+              <input type="checkbox" id="skip-cc-toggle" />
+              <span class="toggle-copy">
+                <strong>Skip credit card payment</strong>
+                <span class="toggle-note" id="skip-cc-note">Loading current setting...</span>
+              </span>
+            </label>
+            <label class="toggle" for="penny-cc-toggle">
+              <input type="checkbox" id="penny-cc-toggle" />
+              <span class="toggle-copy">
+                <strong>Charge $0.01 only</strong>
+                <span class="toggle-note" id="penny-cc-note">Loading current setting...</span>
+              </span>
+            </label>
+            <label class="toggle" for="auto-refresh">
+              <input type="checkbox" id="auto-refresh" checked />
+              <span class="toggle-copy">
+                <strong>Auto refresh</strong>
+                <span class="toggle-note">Refresh dashboard data every 15 seconds.</span>
+              </span>
+            </label>
+            <section class="saved-discounts">
+              <h2 class="section-title">Saved Coupon Codes</h2>
+              <div class="saved-list" id="saved-discounts"></div>
+            </section>
           </div>
-        </div>
-        <div>
-          <h1>Incoming Orders</h1>
-          <p>Review callers, quantities, and shirt details in one place.</p>
-        </div>
-        <section class="stats">
-          <article class="stat">
-            <div class="stat-label">Orders</div>
-            <div class="stat-value" id="order-count">0</div>
-          </article>
-          <article class="stat">
-            <div class="stat-label">Shirts</div>
-            <div class="stat-value" id="shirt-count">0</div>
-          </article>
-          <article class="stat">
-            <div class="stat-label">Revenue</div>
-            <div class="stat-value" id="revenue-total" style="font-size:1.4rem">$0.00</div>
-          </article>
-          <article class="stat">
-            <div class="stat-label">Last Refresh</div>
-            <div class="stat-value" id="last-refresh" style="font-size:1.15rem">Never</div>
-          </article>
-        </section>
+        </details>
+      </header>
+
+      <section class="summary-grid">
+        <article class="stat">
+          <div class="stat-label">Orders</div>
+          <div class="stat-value" id="order-count">0</div>
+        </article>
+        <article class="stat">
+          <div class="stat-label">Shirts</div>
+          <div class="stat-value" id="shirt-count">0</div>
+        </article>
+        <article class="stat">
+          <div class="stat-label">Revenue</div>
+          <div class="stat-value" id="revenue-total">$0.00</div>
+        </article>
+        <article class="stat">
+          <div class="stat-label">Last Refresh</div>
+          <div class="stat-value" id="last-refresh">Never</div>
+        </article>
       </section>
 
       <section class="toolbar">
-        <div class="status" id="status">Loading orders…</div>
-        <div class="toolbar-right">
-          <button class="secondary" id="testivr-button">Test IVR</button>
-          <button class="secondary" id="logout-button" type="button">Log out</button>
-          <label class="toggle" for="submit-order-toggle">
-            <input type="checkbox" id="submit-order-toggle" />
-            <span class="toggle-copy">
-              <span>Submit orders after draft</span>
-              <span class="toggle-note" id="submit-order-note">Loading current setting...</span>
-            </span>
-          </label>
-          <label class="toggle" for="skip-cc-toggle">
-            <input type="checkbox" id="skip-cc-toggle" />
-            <span class="toggle-copy">
-              <span>Skip credit card payment</span>
-              <span class="toggle-note" id="skip-cc-note">Loading current setting...</span>
-            </span>
-          </label>
-          <label class="toggle" for="penny-cc-toggle">
-            <input type="checkbox" id="penny-cc-toggle" />
-            <span class="toggle-copy">
-              <span>Charge $0.01 only</span>
-              <span class="toggle-note" id="penny-cc-note">Loading current setting...</span>
-            </span>
-          </label>
-          <label class="status">
-            <input type="checkbox" id="auto-refresh" checked />
-            Auto refresh
-          </label>
-          <button class="secondary" id="refresh-button">Refresh now</button>
-        </div>
+        <input class="search" id="order-search" type="search" placeholder="Search Shopify order number" />
+        <div class="status" id="result-count"></div>
       </section>
 
-      <section class="saved-discounts">
-        <div class="saved-head">
-          <div>
-            <h2>Saved Coupon Codes</h2>
-            <p>Phone numbers with coupon codes currently saved for ordering.</p>
-          </div>
-        </div>
-        <div class="saved-list" id="saved-discounts"></div>
+      <section class="dashboard">
+        <div class="orders" id="orders"></div>
+        <aside class="detail-panel" id="order-detail"></aside>
       </section>
-
-      <section class="orders" id="orders"></section>
     </main>
 
     <script>
       const ordersEl = document.getElementById("orders");
+      const detailEl = document.getElementById("order-detail");
       const orderCountEl = document.getElementById("order-count");
       const shirtCountEl = document.getElementById("shirt-count");
       const revenueEl = document.getElementById("revenue-total");
       const lastRefreshEl = document.getElementById("last-refresh");
       const statusEl = document.getElementById("status");
+      const resultCountEl = document.getElementById("result-count");
       const savedDiscountsEl = document.getElementById("saved-discounts");
+      const searchEl = document.getElementById("order-search");
       const testIvrButton = document.getElementById("testivr-button");
       const logoutButton = document.getElementById("logout-button");
       const refreshButton = document.getElementById("refresh-button");
@@ -543,8 +576,11 @@
       const skipCcNote = document.getElementById("skip-cc-note");
       const pennyCcToggle = document.getElementById("penny-cc-toggle");
       const pennyCcNote = document.getElementById("penny-cc-note");
-      let timer = null;
       const appPrefix = window.location.pathname === "/rso" || window.location.pathname.startsWith("/rso/") ? "/rso" : "";
+      let timer = null;
+      let ordersState = [];
+      let selectedOrderId = "";
+      let refundingOrderId = "";
 
       function appUrl(path) {
         return `${appPrefix}${path}`;
@@ -561,23 +597,19 @@
         }).format(date);
       }
 
-      function totalShirts(orders) {
-        return orders.reduce((sum, order) => {
-          const perOrder = Array.isArray(order.items)
-            ? order.items.reduce((inner, item) => inner + Number(item.quantity || 0), 0)
-            : Number(order.totalQuantity || 0);
-          return sum + perOrder;
-        }, 0);
+      function formatPhone(value) {
+        const digits = String(value || "").replace(/\D/g, "");
+        const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+        if (ten.length === 10) {
+          return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+        }
+        return String(value || "Unknown caller");
       }
 
-      function totalRevenue(orders) {
-        return orders.reduce((sum, order) => sum + Number(order.totalPrice || 0), 0);
-      }
-
-      function formatMoney(amount) {
+      function formatMoney(amount, currency = "USD") {
         return new Intl.NumberFormat(undefined, {
           style: "currency",
-          currency: "USD"
+          currency: currency || "USD"
         }).format(Number(amount || 0));
       }
 
@@ -594,23 +626,70 @@
         window.location.href = appUrl(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       }
 
+      function totalShirts(orders) {
+        return orders.reduce((sum, order) => {
+          const perOrder = Array.isArray(order.items)
+            ? order.items.reduce((inner, item) => inner + Number(item.quantity || 0), 0)
+            : Number(order.totalQuantity || 0);
+          return sum + perOrder;
+        }, 0);
+      }
+
+      function totalRevenue(orders) {
+        return orders.reduce((sum, order) => sum + Number(order.totalPrice || 0), 0);
+      }
+
+      function orderNumber(order) {
+        return order.shopifyOrder?.number || order.shopifyOrderNumber || order.shopifyOrder?.name || order.shopifyDraftOrder?.name || "Not submitted";
+      }
+
+      function isRefunded(order) {
+        return Boolean(order.stripeRefund?.id || order.refundedAt || String(order.shopifyOrder?.financialStatus || "").toUpperCase() === "REFUNDED");
+      }
+
+      function canRefund(order) {
+        return Boolean(
+          !isRefunded(order) &&
+            (order.stripePaymentIntentId ||
+              order.payment?.stripePaymentIntentId ||
+              /^(pi|ch)_/.test(String(order.payment?.confirmationCode || "")) ||
+              /^(pi|ch)_/.test(String(order.payment?.processorReference || "")))
+        );
+      }
+
+      function filteredOrders() {
+        const query = searchEl.value.trim().toLowerCase();
+        if (!query) return ordersState;
+        return ordersState.filter((order) => {
+          const haystack = [
+            orderNumber(order),
+            order.shopifyOrder?.name,
+            order.shopifyOrder?.id,
+            order.shopifyDraftOrder?.name,
+            order.id
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        });
+      }
+
       function setSettingsUi(settings) {
         const submitEnabled = Boolean(settings && settings.submitShopifyOrder);
         const skipCcEnabled = Boolean(settings && settings.skipCreditCardPayment);
         const pennyEnabled = Boolean(settings && settings.chargeCreditCardOneCent);
 
         submitOrderToggle.checked = submitEnabled;
-        submitOrderNote.textContent = submitEnabled ? "Live IVR will submit real orders." : "Draft-only mode is on.";
-
+        submitOrderNote.textContent = submitEnabled ? "Live IVR submits completed Shopify orders." : "Draft-only mode is on.";
         skipCcToggle.checked = skipCcEnabled;
         skipCcNote.textContent = skipCcEnabled ? "Twilio Pay is bypassed for live and test IVR." : "Cards will still be collected.";
-
         pennyCcToggle.checked = pennyEnabled;
         pennyCcToggle.disabled = skipCcEnabled;
         pennyCcNote.textContent = skipCcEnabled
           ? "Disabled while card collection is skipped."
           : pennyEnabled
-            ? "Live and test IVR will collect only $0.01."
+            ? "Live and test IVR collect only $0.01."
             : "The full order total will be charged.";
       }
 
@@ -638,13 +717,10 @@
             redirectToLogin();
             return;
           }
-
-          const settings = await response.json();
-          setSettingsUi(settings);
+          setSettingsUi(await response.json());
         } catch (_error) {
           await loadSettings();
           statusEl.textContent = "Could not save settings.";
-          return;
         } finally {
           submitOrderToggle.disabled = false;
           skipCcToggle.disabled = false;
@@ -652,35 +728,9 @@
         }
       }
 
-      function renderEmpty() {
-        ordersEl.innerHTML = '<article class="empty">No orders yet. When callers place orders, they will appear here.</article>';
-      }
-
-      function renderSavedDiscounts(entries) {
-        if (!Array.isArray(entries) || !entries.length) {
-          savedDiscountsEl.innerHTML = '<p class="saved-empty">No saved coupon codes.</p>';
-          return;
-        }
-
-        savedDiscountsEl.innerHTML = entries
-          .map(
-            (entry) => `
-              <article class="saved-card">
-                <div class="saved-meta">
-                  <div class="saved-phone">${escapeHtml(entry.caller || "Unknown caller")}</div>
-                  <div class="saved-code">Code ${escapeHtml(entry.code || "")}${entry.verified ? " · verified" : ""}</div>
-                  <div class="saved-updated">Updated ${escapeHtml(formatTime(entry.updatedAt))}</div>
-                </div>
-                <button class="secondary" type="button" data-remove-caller="${escapeHtml(entry.caller || "")}">Remove coupon</button>
-              </article>
-            `
-          )
-          .join("");
-      }
-
       function chip(label, value) {
         if (value === undefined || value === null || value === "") return "";
-        return `<span class="chip">${label}: ${value}</span>`;
+        return `<span class="chip">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
       }
 
       function buildSku(item) {
@@ -690,41 +740,18 @@
         const rawCuff = String(item.cuff || "").trim().toLowerCase();
         const rawSleeve = String(item.sleeve || "").trim().toLowerCase();
         const categoryCode = item.category === "mens" ? "M" : "B";
-        const collarMap = {
-          spread: "S",
-          cutaway: "C",
-          pointy: "P",
-          chassidish: "P"
-        };
-        const collarCode = collarMap[item.collar] || "S";
-        const fitMap = {
-          classic: "C",
-          traditional: "C",
-          slim: "S",
-          "extra slim": "E",
-          "super slim": "X",
-          husky: "H"
-        };
-        const fitCode = fitMap[item.fit] || "C";
-        const prefix = `${categoryCode}T${collarCode}${fitCode}`;
+        const collarMap = { spread: "S", cutaway: "C", pointy: "P", chassidish: "P" };
+        const fitMap = { classic: "C", traditional: "C", slim: "S", "extra slim": "E", "super slim": "X", husky: "H" };
+        const prefix = `${categoryCode}T${collarMap[item.collar] || "S"}${fitMap[item.fit] || "C"}`;
         const parts = ["DP"];
-
         if (style === "chassidish") parts.push("ROL");
         if (rawCuff === "french cuff") parts.push("FC");
         if (rawPocket === "with pocket") parts.push("PKT");
         if (rawSleeve === "short sleeve") parts.push("SS");
-
         const sizeText = String(item.size || "");
-        const isHalf = sizeText.includes(".5");
         const whole = sizeText.replace(".5", "");
-        const sizeSegment =
-          item.category === "boys"
-            ? whole
-            : rawSleeve === "short sleeve"
-              ? `${whole}${isHalf ? "H" : ""}`
-              : `${whole}${isHalf ? "H" : ""}${item.sleeve}`;
-
-        parts.push(sizeSegment);
+        const half = sizeText.includes(".5") ? "H" : "";
+        parts.push(item.category === "boys" || rawSleeve === "short sleeve" ? `${whole}${half}` : `${whole}${half}${item.sleeve}`);
         return [prefix, ...parts].join("-");
       }
 
@@ -735,114 +762,191 @@
           address.company,
           [address.address1, address.address2].filter(Boolean).join(", "),
           [address.city, address.provinceCode || address.province, address.zip].filter(Boolean).join(", "),
-          address.country
+          address.country,
+          address.phone ? formatPhone(address.phone) : ""
         ].filter(Boolean);
       }
 
       function renderShippingAddress(order) {
         const shipping = order.shippingAddress && typeof order.shippingAddress === "object" ? order.shippingAddress : null;
         if (!shipping) {
-          return `
-            <section class="shipping">
-              <div class="shipping-title">Shipping Address</div>
-              <p class="shipping-meta">No shipping address captured.</p>
-            </section>
-          `;
+          return `<p>No shipping address captured.</p>`;
         }
 
         const lines = addressLines(shipping.address);
         const spoken = String(shipping.raw || "").trim();
-        const displayLines = lines.length ? lines : spoken ? [spoken] : [];
+        const displayLines = lines.length ? lines : spoken ? [spoken] : ["Address details unavailable"];
         const linkedPhone = shipping.linkedCallerPhone && shipping.linkedCallerPhone !== shipping.lookupPhone
-          ? ` · linked to caller ${escapeHtml(shipping.linkedCallerPhone)}`
+          ? `<br>Linked caller: ${escapeHtml(formatPhone(shipping.linkedCallerPhone))}`
           : "";
-        const customer = shipping.customer?.displayName ? ` · ${escapeHtml(shipping.customer.displayName)}` : "";
+        const customer = shipping.customer?.displayName ? `<br>${escapeHtml(shipping.customer.displayName)}` : "";
         const source = shipping.source === "spoken"
           ? "Spoken by caller"
           : shipping.lookupPhone
-            ? `Saved address lookup ${escapeHtml(shipping.lookupPhone)}`
+            ? `Saved address lookup ${escapeHtml(formatPhone(shipping.lookupPhone))}`
             : "Saved address";
-        const reviewNote = shipping.status === "needs-review" ? " · needs staff review" : "";
-
+        const reviewNote = shipping.status === "needs-review" ? "<br>Needs staff review" : "";
         return `
-          <section class="shipping">
-            <div class="shipping-title">Shipping Address</div>
-            <p class="shipping-lines">${displayLines.length ? displayLines.map(escapeHtml).join("<br>") : "Address details unavailable"}</p>
-            <p class="shipping-meta">${source}${customer}${linkedPhone}${reviewNote}</p>
-          </section>
+          <p>${displayLines.map(escapeHtml).join("<br>")}</p>
+          <p>${source}${customer}${linkedPhone}${reviewNote}</p>
         `;
       }
 
-      function renderOrders(orders) {
-        if (!orders.length) {
-          renderEmpty();
+      function renderOrderCard(order) {
+        const selected = String(order.id || "") === selectedOrderId;
+        const refunded = isRefunded(order);
+        return `
+          <article class="order-card${selected ? " active" : ""}" data-select-order="${escapeHtml(order.id || "")}" tabindex="0">
+            <div class="card-top">
+              <div>
+                <div class="order-number">${escapeHtml(orderNumber(order))}</div>
+                <div class="card-meta">
+                  <span>${escapeHtml(formatTime(order.createdAt))}</span>
+                  <span>${escapeHtml(formatPhone(order.caller))}</span>
+                </div>
+              </div>
+              ${refunded ? '<span class="pill refunded">Refunded</span>' : ""}
+            </div>
+            <div class="pill-row">
+              <span class="pill">${escapeHtml(formatMoney(order.totalPrice || 0, order.currencyCode || "USD"))}</span>
+              <span class="pill">${Number(order.totalQuantity || 0)} shirts</span>
+              ${order.shopifyOrder?.financialStatus ? `<span class="pill">${escapeHtml(order.shopifyOrder.financialStatus)}</span>` : ""}
+            </div>
+            <div class="card-actions">
+              <span class="muted">${escapeHtml(order.shopifyOrder?.id ? "Submitted to Shopify" : "Draft or local record")}</span>
+              <button class="${canRefund(order) ? "danger" : "secondary"}" type="button" data-refund-order="${escapeHtml(order.id || "")}" ${canRefund(order) && refundingOrderId !== order.id ? "" : "disabled"}>
+                ${refundingOrderId === order.id ? "Canceling..." : refunded ? "Canceled & Refunded" : "Cancel & Refund"}
+              </button>
+            </div>
+          </article>
+        `;
+      }
+
+      function renderDetail(order) {
+        if (!order) {
+          detailEl.innerHTML = '<div class="empty">No order selected.</div>';
           return;
         }
 
-        ordersEl.innerHTML = orders
-          .map((order) => {
-            const items = Array.isArray(order.items) ? order.items : [];
-            return `
-              <article class="order">
-                <div class="order-head">
-                  <div class="order-meta">
-                    <div class="order-id">Order record: ${order.id || "Order"}</div>
-                    <div class="order-time">${formatTime(order.createdAt)}</div>
-                  </div>
-                  <div class="caller">${order.caller || "Unknown caller"}</div>
-                </div>
+        const items = Array.isArray(order.items) ? order.items : [];
+        detailEl.innerHTML = `
+          <div class="detail-head">
+            <div>
+              <h2 class="detail-title">${escapeHtml(orderNumber(order))}</h2>
+              <div class="muted">${escapeHtml(formatTime(order.createdAt))} / ${escapeHtml(formatPhone(order.caller))}</div>
+            </div>
+            ${isRefunded(order) ? '<span class="pill refunded">Refunded</span>' : ""}
+          </div>
+          <div class="detail-grid">
+            <section>
+              <h3 class="section-title">Ordered</h3>
+              <div class="item-list">
+                ${items
+                  .map(
+                    (item) => `
+                      <article class="item">
+                        <div class="item-top">
+                          <div class="item-title">${escapeHtml([item.category, item.style, "twill shirt"].filter(Boolean).join(" "))}</div>
+                          <div class="qty">Qty ${escapeHtml(item.quantity || 0)}</div>
+                        </div>
+                        <p class="item-line">SKU ${escapeHtml(item.sku || buildSku(item))}</p>
+                        <p class="item-line">Line total ${escapeHtml(formatMoney(item.lineTotal || 0, order.currencyCode || "USD"))}</p>
+                        <div class="chips">
+                          ${chip("Size", item.size)}
+                          ${chip("Sleeve", item.sleeve)}
+                          ${chip("Fit", item.fit)}
+                          ${chip("Pocket", item.pocket)}
+                          ${chip("Cuff", item.cuff)}
+                          ${chip("Collar", item.collar)}
+                        </div>
+                      </article>
+                    `
+                  )
+                  .join("")}
+              </div>
+              <div class="total">Order Total: ${escapeHtml(formatMoney(order.totalPrice || 0, order.currencyCode || "USD"))}</div>
+            </section>
+            <aside class="side">
+              <section class="side-card">
+                <h3 class="section-title">Shipping Address</h3>
                 ${renderShippingAddress(order)}
-                <section class="items">
-                  ${items
-                    .map(
-                      (item) => `
-                        <article class="item">
-                          <div class="item-top">
-                            <div class="item-title">${item.category || ""} ${item.style || ""} twill shirt</div>
-                            <div class="qty">Qty ${item.quantity || 0}</div>
-                          </div>
-                          <p class="item-line">SKU ${item.sku || buildSku(item)}</p>
-                          <p class="item-line">Line total ${formatMoney(item.lineTotal || 0)}</p>
-                          <div class="chips">
-                            ${chip("Size", item.size)}
-                            ${chip("Sleeve", item.sleeve)}
-                            ${chip("Fit", item.fit)}
-                            ${chip("Pocket", item.pocket)}
-                            ${chip("Cuff", item.cuff)}
-                            ${chip("Collar", item.collar)}
-                          </div>
-                        </article>
-                      `
-                    )
-                    .join("")}
-                </section>
-                <p class="order-total">Order Total: ${formatMoney(order.totalPrice || 0)}</p>
+              </section>
+              <section class="side-card">
+                <h3 class="section-title">Details</h3>
+                <p>Local record: ${escapeHtml(order.id || "")}</p>
+                <p>Shopify draft: ${escapeHtml(order.shopifyDraftOrder?.name || "None")}</p>
+                <p>Shopify order: ${escapeHtml(order.shopifyOrder?.name || order.shopifyOrderNumber || "Not submitted")}</p>
+                <p>Stripe intent: ${escapeHtml(order.stripePaymentIntentId || order.payment?.stripePaymentIntentId || order.payment?.confirmationCode || "Not saved")}</p>
+                <p>Payment: ${escapeHtml(order.payment?.result || "Unknown")} ${order.payment?.amount ? `/ ${escapeHtml(formatMoney(order.payment.amount, order.payment.currency || order.currencyCode || "USD"))}` : ""}</p>
+                ${order.shopifyOrderError ? `<p>Shopify submit error: ${escapeHtml(order.shopifyOrderError)}</p>` : ""}
+                ${order.shopifyRefundMarkError ? `<p>Shopify refund mark error: ${escapeHtml(order.shopifyRefundMarkError)}</p>` : ""}
+                ${order.stripeRefund?.id ? `<p>Stripe refund: ${escapeHtml(order.stripeRefund.id)} (${escapeHtml(order.stripeRefund.status || "created")})</p>` : ""}
+                ${order.shopifyRefundMark?.markedAt ? `<p>Shopify marked: ${escapeHtml(formatTime(order.shopifyRefundMark.markedAt))}</p>` : ""}
+              </section>
+            </aside>
+          </div>
+        `;
+      }
+
+      function renderOrders() {
+        const visibleOrders = filteredOrders();
+        if (!visibleOrders.length) {
+          ordersEl.innerHTML = '<article class="empty">No matching orders.</article>';
+          resultCountEl.textContent = "0 results";
+          renderDetail(null);
+          return;
+        }
+
+        if (!visibleOrders.some((order) => String(order.id || "") === selectedOrderId)) {
+          selectedOrderId = String(visibleOrders[0].id || "");
+        }
+
+        ordersEl.innerHTML = visibleOrders.map(renderOrderCard).join("");
+        resultCountEl.textContent = `${visibleOrders.length} result${visibleOrders.length === 1 ? "" : "s"}`;
+        renderDetail(ordersState.find((order) => String(order.id || "") === selectedOrderId) || visibleOrders[0]);
+      }
+
+      function renderSavedDiscounts(entries) {
+        if (!Array.isArray(entries) || !entries.length) {
+          savedDiscountsEl.innerHTML = '<p class="muted">No saved coupon codes.</p>';
+          return;
+        }
+
+        savedDiscountsEl.innerHTML = entries
+          .map(
+            (entry) => `
+              <article class="saved-card">
+                <div>
+                  <strong>${escapeHtml(formatPhone(entry.caller || ""))}</strong>
+                  <div class="muted">Code ${escapeHtml(entry.code || "")}${entry.verified ? " / verified" : ""}</div>
+                </div>
+                <button class="secondary" type="button" data-remove-caller="${escapeHtml(entry.caller || "")}">Remove</button>
               </article>
-            `;
-          })
+            `
+          )
           .join("");
       }
 
       async function loadOrders() {
         try {
-          statusEl.textContent = "Loading orders…";
+          statusEl.textContent = "Loading orders...";
           const response = await fetch(appUrl("/api/orders"), { cache: "no-store" });
           if (response.status === 401) {
             redirectToLogin();
             return;
           }
           if (!response.ok) throw new Error(`Request failed with ${response.status}`);
-          const orders = await response.json();
-          orderCountEl.textContent = String(orders.length);
-          shirtCountEl.textContent = String(totalShirts(orders));
-          revenueEl.textContent = formatMoney(totalRevenue(orders));
+          ordersState = await response.json();
+          orderCountEl.textContent = String(ordersState.length);
+          shirtCountEl.textContent = String(totalShirts(ordersState));
+          revenueEl.textContent = formatMoney(totalRevenue(ordersState));
           lastRefreshEl.textContent = new Date().toLocaleTimeString();
-          statusEl.textContent = orders.length ? "Orders loaded." : "No orders yet.";
-          renderOrders(orders);
+          statusEl.textContent = ordersState.length ? "Orders loaded." : "No orders yet.";
+          renderOrders();
         } catch (error) {
           statusEl.textContent = `Could not load orders: ${error.message}`;
           if (!ordersEl.innerHTML) {
-            renderEmpty();
+            ordersEl.innerHTML = '<article class="empty">No orders loaded.</article>';
           }
         }
       }
@@ -854,40 +958,62 @@
             redirectToLogin();
             return;
           }
-
           renderSavedDiscounts(await response.json());
         } catch (_error) {
-          savedDiscountsEl.innerHTML = '<p class="saved-empty">Could not load saved coupon codes.</p>';
+          savedDiscountsEl.innerHTML = '<p class="muted">Could not load saved coupon codes.</p>';
         }
       }
 
       async function removeSavedDiscount(caller) {
-        if (!caller) {
-          return;
-        }
-
-        statusEl.textContent = `Removing saved coupon for ${caller}…`;
+        if (!caller) return;
+        statusEl.textContent = `Removing saved coupon for ${formatPhone(caller)}...`;
         try {
-          const payload = new URLSearchParams({ caller });
           const response = await fetch(appUrl("/api/admin/caller-discounts/clear"), {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: payload
+            body: new URLSearchParams({ caller })
           });
-
           if (response.status === 401) {
             redirectToLogin();
             return;
           }
-
-          if (!response.ok) {
-            throw new Error(`Request failed with ${response.status}`);
-          }
-
-          statusEl.textContent = `Removed saved coupon for ${caller}.`;
+          if (!response.ok) throw new Error(`Request failed with ${response.status}`);
+          statusEl.textContent = `Removed saved coupon for ${formatPhone(caller)}.`;
           await loadSavedDiscounts();
         } catch (error) {
           statusEl.textContent = `Could not remove saved coupon: ${error.message}`;
+        }
+      }
+
+      async function refundOrder(orderId) {
+        if (!orderId || refundingOrderId) return;
+        refundingOrderId = orderId;
+        renderOrders();
+          statusEl.textContent = "Refunding Stripe payment...";
+
+        try {
+          const response = await fetch(appUrl("/api/orders/refund"), {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ orderId })
+          });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || `Request failed with ${response.status}`);
+          }
+          ordersState = ordersState.map((order) => (String(order.id || "") === orderId ? payload.order : order));
+          statusEl.textContent = payload.order.shopifyRefundMarkError
+            ? "Stripe refunded. Shopify cancel/refund record needs attention."
+            : "Stripe refunded. Shopify order canceled and marked refunded.";
+        } catch (error) {
+          statusEl.textContent = `Could not refund order: ${error.message}`;
+        } finally {
+          refundingOrderId = "";
+          renderOrders();
         }
       }
 
@@ -898,8 +1024,7 @@
             redirectToLogin();
             return;
           }
-          const settings = await response.json();
-          setSettingsUi(settings);
+          setSettingsUi(await response.json());
         } catch (_error) {
           setSettingsUi({
             submitShopifyOrder: false,
@@ -941,6 +1066,28 @@
         saveSettings();
       });
       pennyCcToggle.addEventListener("change", saveSettings);
+      searchEl.addEventListener("input", renderOrders);
+      ordersEl.addEventListener("click", (event) => {
+        const refundButton = event.target.closest("[data-refund-order]");
+        if (refundButton) {
+          event.stopPropagation();
+          refundOrder(refundButton.getAttribute("data-refund-order"));
+          return;
+        }
+
+        const card = event.target.closest("[data-select-order]");
+        if (!card) return;
+        selectedOrderId = String(card.getAttribute("data-select-order") || "");
+        renderOrders();
+      });
+      ordersEl.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const card = event.target.closest("[data-select-order]");
+        if (!card) return;
+        event.preventDefault();
+        selectedOrderId = String(card.getAttribute("data-select-order") || "");
+        renderOrders();
+      });
       savedDiscountsEl.addEventListener("click", (event) => {
         const button = event.target.closest("[data-remove-caller]");
         if (!button) return;
