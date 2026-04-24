@@ -1723,8 +1723,8 @@ function shopifyDebugReport(req, baseUrl) {
       handle: "rb-refund-stripe",
       name: "RB refund stripe",
       target: "admin.order-details.action.link",
-      url: "/shopify/refund",
-      note: "This TOML config must be deployed/released to the Shopify app. Vercel/GitHub alone cannot register it in Shopify."
+      url: "https://rebbi-shirt-order.vercel.app/shopify/refund",
+      note: "This TOML config must be deployed/released to the Shopify app. The absolute URL is intentional so Shopify opens the action in an external window instead of navigating inside the embedded app context."
     },
     vercelFunctionLimit: {
       used: apiFiles.length,
