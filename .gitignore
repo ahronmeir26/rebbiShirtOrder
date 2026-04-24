@@ -9,3 +9,5 @@ node_modules
 data/orders.json
 data/sessions.json
 data/shopify-preorder-cache.json
+
+*.swp

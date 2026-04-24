@@ -9,6 +9,7 @@
 - Treat `deploy` as an immediate commit-and-push request for the current changes.
 - When implementing features in this repo, make sure the behavior works in both local dev and Vercel environments.
 - For any code change in this repo, always verify the implementation will work on the Vercel server, not just in local dev.
+- Keep Vercel Hobby plan limits in mind: do not add serverless functions beyond the 12-function deployment limit. Prefer reusing an existing API wrapper when adding endpoints.
 - When running the local dev server for this repo, also run ngrok so Twilio can reach the local app.
 - Start ngrok for this repo with `/tmp/ngrok-install/ngrok http 3000` whenever starting the local dev server.
 - When the issue is clearly Vercel-only, do not treat restarting the local dev server as meaningful verification.
@@ -17,3 +18,4 @@
 - When loading data from Shopify in this repo, reference the local skill at `.codex/skills/shopify-loader/SKILL.md`.
 - When new Shopify-specific implementation details are learned, add them to the Shopify loader skill or its references.
 - When Shopify API access patterns, queries, filters, scopes, locations, or payload shapes change, update the Shopify loader skill and references in the same task.
+- Use this neutral UI palette unless the user gives a newer palette: `#202223` primary text, `#6d7175` secondary text/muted labels/icons, `#f6f6f7` subtle background fills, `#e1e3e5` default borders/dividers, `#e4e5e7` tag/pill backgrounds, and `#ffffff` card surfaces.

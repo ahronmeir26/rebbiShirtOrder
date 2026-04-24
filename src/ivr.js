@@ -4082,7 +4082,7 @@ async function routeRequest(req, res, pathname, baseUrl) {
     return;
   }
 
-  if (req.method === "POST" && pathname === "/api/orders/refund") {
+  if (req.method === "POST" && (pathname === "/api/orders" || pathname === "/api/orders/refund")) {
     return handleRefundOrder(req, res);
   }
 
