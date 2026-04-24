@@ -2142,7 +2142,7 @@ function postAddMenuResponse(baseUrl, session, addedItem) {
 }
 
 function cartReturnPath(context) {
-  return context === "postadd" || context === "summary" ? "/api/twilio/order/summary" : "/api/twilio/voice";
+  return context === "postadd" ? "/api/twilio/order/summary" : "/api/twilio/voice";
 }
 
 function buildCartPlaybackRoute(context, index, announce = false) {
@@ -2167,7 +2167,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, announce) {
   const item = session.cart[safeIndex];
   const parts = [];
   const prompt = announce
-    ? `While listening to the cart, press 1 to go to the previous item. Press 3 to skip to the next item. Press 5 to delete this item from your cart. Press 7 to change this item's quantity. ${formatCartPlaybackLine(item, safeIndex, session.cart.length)}`
+    ? `While listening to the cart, press 1 to go to the previous item. Press 3 to skip to the next item. Press 5 to delete this item from your cart. Press 7 to change this item's quantity. Press star to go back. ${formatCartPlaybackLine(item, safeIndex, session.cart.length)}`
     : formatCartPlaybackLine(item, safeIndex, session.cart.length);
 
   parts.push(
@@ -2176,7 +2176,7 @@ function cartPlaybackResponse(baseUrl, session, context, index, announce) {
       input: "dtmf",
       numDigits: 1,
       timeout: CART_PLAYBACK_TIMEOUT,
-      hints: "previous, back, skip, next, delete, remove, quantity, change, update",
+      hints: "previous, back, star, skip, next, delete, remove, quantity, change, update",
       prompt
     })
   );
@@ -2467,7 +2467,7 @@ async function handleMainMenu(req, res, baseUrl) {
       return;
     }
 
-    xml(res, 200, cartPlaybackResponse(baseUrl, session, "summary", 0, true));
+    xml(res, 200, cartPlaybackResponse(baseUrl, session, "voice", 0, true));
     return;
   }
 
@@ -2869,6 +2869,12 @@ async function handleCartControl(req, res, baseUrl) {
   const rawContext = current.searchParams.get("context");
   const context = rawContext === "postadd" || rawContext === "summary" ? rawContext : "voice";
   const index = Number(current.searchParams.get("index") || 0);
+
+  if (wantsPreviousMenu(form)) {
+    xml(res, 200, twiml([redirect(baseUrl, cartReturnPath(context))]));
+    return;
+  }
+
   const selection = normalizeCartPlaybackSelection(form.Digits || form.SpeechResult);
 
   if (selection === "7") {
