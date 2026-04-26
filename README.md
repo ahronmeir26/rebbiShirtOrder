@@ -28,6 +28,10 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 - `POST /api/twilio/order/next`
 - `POST /api/twilio/order/discount-code`
 - `POST /api/twilio/order/discount-code/review`
+- `POST /api/twilio/order/address/start`
+- `POST /api/twilio/order/address/review`
+- `POST /api/twilio/order/address/spoken`
+- `POST /api/twilio/order/address/phone`
 - `POST /api/twilio/order/finalize`
 - `POST /api/twilio/cart/play`
 - `POST /api/twilio/cart/control`
@@ -51,6 +55,7 @@ The site root `/` shows a live order dashboard that reads from `/api/orders`.
 export PORT=3000
 export BASE_URL=https://your-ngrok-subdomain.ngrok-free.app
 export REPRESENTATIVE_NUMBER=+15551234567
+export GOOGLE_ADDRESS_VALIDATION_API_KEY=your-google-address-validation-key
 ```
 
 2. Start the local server:
@@ -79,8 +84,9 @@ https://your-ngrok-subdomain.ngrok-free.app/api/twilio/voice
 2. Do not set `BASE_URL` to your local `ngrok` URL in Vercel. On Vercel, the app uses the request host automatically.
 3. Optionally set `BASE_URL` in Vercel only if you want to force a specific production domain.
 4. Set `REPRESENTATIVE_NUMBER` if you want the transfer option to dial a real number.
-5. Attach a Vercel Blob store to the project so `BLOB_READ_WRITE_TOKEN` is available for durable order storage.
-6. In Twilio, configure the voice webhook URL as:
+5. Set `GOOGLE_ADDRESS_VALIDATION_API_KEY` or `GOOGLE_MAPS_API_KEY` so spoken shipping addresses can be verified before checkout.
+6. Attach a Vercel Blob store to the project so `BLOB_READ_WRITE_TOKEN` is available for durable order storage.
+7. In Twilio, configure the voice webhook URL as:
 
 ```text
 https://your-app.vercel.app/api/twilio/voice
