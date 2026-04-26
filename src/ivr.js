@@ -2599,14 +2599,51 @@ function normalizeLookupPhoneInput(input) {
   return "";
 }
 
+function comparablePhoneDigits(value) {
+  const digits = String(value || "").replace(/[^\d]/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1);
+  }
+
+  return digits;
+}
+
+function phonesMatch(left, right) {
+  const leftDigits = comparablePhoneDigits(left);
+  const rightDigits = comparablePhoneDigits(right);
+  return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
+}
+
 function savedStructuredAddressCanBeReused(session, callPhone) {
   if (!session?.shippingAddress?.address || session.shippingAddress.lookupVerifiedExact !== true) {
     return false;
   }
 
-  const lookupPhone = normalizePhoneForShopify(session.shippingAddress.lookupPhone);
-  const callerPhone = normalizePhoneForShopify(callPhone || session.caller);
-  return Boolean(lookupPhone && callerPhone && lookupPhone === callerPhone);
+  return phonesMatch(session.shippingAddress.lookupPhone, callPhone || session.caller);
+}
+
+async function findSavedShippingAddressForPhone(lookupPhone, linkedCallerPhone) {
+  const savedSession = await findSessionByCaller(lookupPhone);
+  const savedAddress =
+    savedSession?.shippingAddress && typeof savedSession.shippingAddress === "object" ? savedSession.shippingAddress : null;
+
+  if (!savedAddress || !(savedAddress.address || savedAddress.raw)) {
+    return null;
+  }
+
+  const addressLookupPhone = savedAddress.lookupPhone || savedSession.caller;
+  if (!phonesMatch(addressLookupPhone, lookupPhone) && !phonesMatch(savedSession.caller, lookupPhone)) {
+    return null;
+  }
+
+  return {
+    ...savedAddress,
+    lookupPhone,
+    linkedCallerPhone: String(linkedCallerPhone || "").trim() || savedAddress.linkedCallerPhone,
+    lookupStatus: "saved",
+    source: savedAddress.source || "ivr-saved",
+    updatedAt: new Date().toISOString()
+  };
 }
 
 function itemSpeechParts(item) {
@@ -3474,6 +3511,11 @@ async function lookupShippingAddressForPhone(phone, linkedCallerPhone) {
       linkedCallerPhone: String(linkedCallerPhone || "").trim() || undefined,
       updatedAt: new Date().toISOString()
     };
+  }
+
+  const savedShippingAddress = await findSavedShippingAddressForPhone(lookupPhone, linkedCallerPhone);
+  if (savedShippingAddress) {
+    return savedShippingAddress;
   }
 
   try {
