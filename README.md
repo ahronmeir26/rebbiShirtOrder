@@ -114,7 +114,7 @@ curl -X POST https://your-app.vercel.app/api/orders/shopify-refund \
 
 ## Shopify More Actions refund app
 
-The `extensions/rb-refund-stripe` Admin action UI extension adds `RB refund stripe` to the order details page More actions menu. It opens as a Shopify modal and posts to `/api/shopify/refund-action`, which reuses the existing `api/orders.js` Vercel function. The modal action verifies Shopify's Admin UI extension session token, matches the selected Shopify order to a saved IVR dashboard order, and refunds the saved Stripe payment through the same path as the dashboard refund button.
+The `extensions/rb-refund-stripe` Admin action UI extension adds `RB refund stripe` to the order details page More actions menu. It is an Admin Action UI extension modal, configured with `admin.order-details.action.render`, and posts to `/api/shopify/refund-action`, which reuses the existing `api/orders.js` Vercel function. The modal action verifies Shopify's Admin UI extension session token, matches the selected Shopify order to a saved IVR dashboard order, refunds the saved Stripe payment through the same path as the dashboard refund button, and then attempts to record the Stripe refund in Shopify with a manual `refundCreate` record.
 
 The legacy `/shopify/refund` page remains as a signed-HMAC fallback/debug surface, but the deployed More actions entry should use `admin.order-details.action.render`, not the old link target.
 

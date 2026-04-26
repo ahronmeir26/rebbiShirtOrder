@@ -54,10 +54,15 @@ function Extension() {
 
     try {
       const result = await postRefundAction({ action: "refund", orderId });
+      const shopifyStatus = result.shopifyRefund?.id
+        ? " Shopify was marked refunded."
+        : result.shopifyRefundMarkError
+          ? ` Shopify refund marking needs review: ${result.shopifyRefundMarkError}`
+          : "";
       setState((current) => ({
         ...current,
         submitting: false,
-        success: `Stripe refund ${result.refund?.id || "created"} for ${result.order?.name || "this order"}.`
+        success: `Stripe refund ${result.refund?.id || "created"} for ${result.order?.name || "this order"}.${shopifyStatus}`
       }));
       setTimeout(() => shopify.close(), 1200);
     } catch (error) {

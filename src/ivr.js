@@ -34,6 +34,7 @@ const {
   getShopifyOrderRefundPreview,
   lookupDiscountCode,
   cancelShopifyOrderByRecord,
+  createManualShopifyRefundRecord,
   normalizePhoneForShopify,
   refundShopifyOrderByNumber,
   toMoneyAmount
@@ -804,9 +805,13 @@ function buildPaymentCollectionConfig(preparedCheckout, runtimeConfig) {
 }
 
 function paymentPromptResponse(baseUrl, preparedCheckout) {
+  const totalAmount = formatChargeAmount(preparedCheckout.totalPrice);
   const chargeAmount = formatChargeAmount(preparedCheckout.paymentChargeAmount || preparedCheckout.totalPrice);
+  const paymentPrompt = totalAmount === chargeAmount
+    ? `We will now collect your payment of ${chargeAmount} dollars, including shipping.`
+    : `Your total with shipping is ${totalAmount} dollars. We will now collect your payment of ${chargeAmount} dollars.`;
   return twiml([
-    say(`We will now collect your payment of ${chargeAmount} dollars.`),
+    say(paymentPrompt),
     pay(baseUrl, {
       action: "/api/twilio/order/payment/complete",
       amount: preparedCheckout.paymentChargeAmount || preparedCheckout.totalPrice,
@@ -2368,6 +2373,8 @@ async function handleShopifyRefundAction(req, res) {
     json(res, 200, {
       ok: true,
       refund: updatedOrder.stripeRefund,
+      shopifyRefund: updatedOrder.shopifyRefund || null,
+      shopifyRefundMarkError: updatedOrder.shopifyRefundMarkError || "",
       order: {
         id: preview.order.id,
         name: preview.order.name,
@@ -4335,9 +4342,25 @@ async function refundStoredOrderRecord(orderRecord) {
   }
 
   const stripeRefund = await createStripeRefund(orderRecord);
+  let shopifyRefund = null;
+  let shopifyRefundMarkError = "";
+  if (orderRecord?.shopifyOrder?.id) {
+    try {
+      shopifyRefund = await createManualShopifyRefundRecord(orderRecord, {
+        amount: stripeRefund.amount,
+        currency: stripeRefund.currency,
+        stripeRefundId: stripeRefund.id
+      });
+    } catch (error) {
+      shopifyRefundMarkError = String(error?.message || "Shopify refund mark failed.");
+    }
+  }
+
   const updatedOrder = {
     ...orderRecord,
     stripeRefund,
+    ...(shopifyRefund ? { shopifyRefund } : {}),
+    ...(shopifyRefundMarkError ? { shopifyRefundMarkError } : { shopifyRefundMarkError: undefined }),
     refundedAt: stripeRefund.createdAt,
     refundStatus: stripeRefund.status || "succeeded",
     payment: {
@@ -4345,6 +4368,11 @@ async function refundStoredOrderRecord(orderRecord) {
       refunded: true,
       refundedAt: stripeRefund.createdAt,
       refundId: stripeRefund.id
+    },
+    shopifyOrder: {
+      ...(orderRecord.shopifyOrder && typeof orderRecord.shopifyOrder === "object" ? orderRecord.shopifyOrder : {}),
+      ...(shopifyRefund?.financialStatus ? { financialStatus: shopifyRefund.financialStatus } : {}),
+      ...(shopifyRefund?.refundStatus ? { refundStatus: shopifyRefund.refundStatus } : {})
     }
   };
 
@@ -4424,7 +4452,8 @@ async function handleCancelOrder(req, res) {
     shopifyOrder: {
       ...(orderRecord.shopifyOrder && typeof orderRecord.shopifyOrder === "object" ? orderRecord.shopifyOrder : {}),
       cancelled: true,
-      cancelledAt: cancellation.cancelledAt
+      cancelledAt: cancellation.cancelledAt,
+      ...(cancellation.close?.closedAt ? { closed: true, closedAt: cancellation.close.closedAt } : {})
     }
   };
 
@@ -4578,7 +4607,7 @@ async function handleCartControl(req, res, baseUrl) {
 
     if (!session.cart.length) {
       await resetSessionState(form.CallSid, form.From);
-      xml(res, 200, twiml([say("Item deleted. Your cart is now empty."), redirect(baseUrl, cartReturnPath(context))]));
+      xml(res, 200, twiml([say("Item deleted. Your cart is now empty."), redirect(baseUrl, "/api/twilio/voice")]));
       return;
     }
 

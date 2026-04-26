@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 let shopifyTokenCache = null;
 const SHIPPING_FEE = 10;
 
@@ -13,6 +15,40 @@ function shopifyConfig() {
 
 function configError() {
   return "Missing Shopify configuration. Set SHOPIFY_STORE_DOMAIN with either SHOPIFY_ADMIN_ACCESS_TOKEN or SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET.";
+}
+
+function shopifyApiVersionNumber() {
+  const match = shopifyConfig().apiVersion.match(/^(\d{4})-(\d{2})$/);
+  if (!match) {
+    return 0;
+  }
+
+  return Number(match[1]) * 100 + Number(match[2]);
+}
+
+function supportsRefundCreateIdempotency() {
+  return shopifyApiVersionNumber() >= 202601;
+}
+
+function shopifyIdempotencyKey(...parts) {
+  return crypto
+    .createHash("sha256")
+    .update(parts.map((part) => String(part || "")).join("|"), "utf8")
+    .digest("hex");
+}
+
+function refundCreateMutation(operationName, selection) {
+  const withIdempotency = supportsRefundCreateIdempotency();
+  return {
+    query: `
+      mutation ${operationName}($input: RefundInput!${withIdempotency ? ", $idempotencyKey: String!" : ""}) {
+        refundCreate(input: $input)${withIdempotency ? " @idempotent(key: $idempotencyKey)" : ""} {
+${selection}
+        }
+      }
+    `,
+    withIdempotency
+  };
 }
 
 async function resolveShopifyAccessToken() {
@@ -833,9 +869,7 @@ async function refundShopifyOrderByReference({ orderNumber, orderId, notify = fa
     throw shopifyRouteError(`Shopify order ${order.name || orderNumber} has no refundable line items.`, 409);
   }
 
-  const mutation = `
-    mutation RefundShopifyOrder($input: RefundInput!) {
-      refundCreate(input: $input) {
+  const mutation = refundCreateMutation("RefundShopifyOrder", `
         refund {
           id
           note
@@ -871,11 +905,9 @@ async function refundShopifyOrderByReference({ orderNumber, orderId, notify = fa
           field
           message
         }
-      }
-    }
-  `;
+  `);
 
-  const data = await fetchGraphqlJson(mutation, {
+  const variables = {
     input: {
       orderId: order.id,
       refundLineItems,
@@ -884,7 +916,12 @@ async function refundShopifyOrderByReference({ orderNumber, orderId, notify = fa
       notify: Boolean(notify),
       note: String(note || `Full refund requested through secure backend route for ${order.name}.`).trim()
     }
-  });
+  };
+  if (mutation.withIdempotency) {
+    variables.idempotencyKey = shopifyIdempotencyKey("refund-shopify-order", order.id, refundRequest.type, variables.input.note, variables.input.notify);
+  }
+
+  const data = await fetchGraphqlJson(mutation.query, variables);
   const result = data.refundCreate || {};
   const errors = Array.isArray(result.userErrors) ? result.userErrors.filter((entry) => entry?.message) : [];
   if (errors.length) {
@@ -973,9 +1010,7 @@ async function createManualShopifyRefundRecord(orderRecord, refund) {
     }))
     .filter((lineItem) => lineItem.lineItemId && lineItem.quantity > 0);
   const shippingAmount = toMoneyAmount(orderRecord?.shippingPrice || 0);
-  const query = `
-    mutation CreateManualRefundRecord($input: RefundInput!) {
-      refundCreate(input: $input) {
+  const mutation = refundCreateMutation("CreateManualRefundRecord", `
         refund {
           id
           note
@@ -996,11 +1031,9 @@ async function createManualShopifyRefundRecord(orderRecord, refund) {
           field
           message
         }
-      }
-    }
-  `;
+  `);
 
-  const data = await fetchGraphqlJson(query, {
+  const variables = {
     input: {
       orderId,
       note: `Stripe refund ${String(refund?.stripeRefundId || "").trim() || "created"} processed outside Shopify for IVR order ${orderRecord.id || ""}.`,
@@ -1015,7 +1048,12 @@ async function createManualShopifyRefundRecord(orderRecord, refund) {
         }
       ]
     }
-  });
+  };
+  if (mutation.withIdempotency) {
+    variables.idempotencyKey = shopifyIdempotencyKey("manual-stripe-refund", orderId, orderRecord.id, refund?.stripeRefundId, amount);
+  }
+
+  const data = await fetchGraphqlJson(mutation.query, variables);
   const result = data.refundCreate || {};
   const errors = Array.isArray(result.userErrors) ? result.userErrors.filter((entry) => entry?.message) : [];
   if (errors.length) {
@@ -1038,6 +1076,79 @@ async function createManualShopifyRefundRecord(orderRecord, refund) {
     stripeRefundId: String(refund?.stripeRefundId || "").trim(),
     markedAt: new Date().toISOString()
   };
+}
+
+async function closeShopifyOrder(orderId) {
+  const normalizedOrderId = String(orderId || "").trim();
+  if (!normalizedOrderId) {
+    throw new Error("Missing Shopify order ID.");
+  }
+
+  const query = `
+    mutation CloseOrder($input: OrderCloseInput!) {
+      orderClose(input: $input) {
+        order {
+          id
+          closed
+          closedAt
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const data = await fetchGraphqlJson(query, {
+    input: {
+      id: normalizedOrderId
+    }
+  });
+  const result = data.orderClose || {};
+  const errors = Array.isArray(result.userErrors) ? result.userErrors.filter((entry) => entry?.message) : [];
+  if (errors.length) {
+    throw new Error(errors.map((entry) => entry.message).join("; "));
+  }
+
+  return {
+    orderId: result.order?.id || normalizedOrderId,
+    closed: Boolean(result.order?.closed),
+    closedAt: result.order?.closedAt || new Date().toISOString()
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForShopifyJob(jobId) {
+  const normalizedJobId = String(jobId || "").trim();
+  if (!normalizedJobId) {
+    return false;
+  }
+
+  const query = `
+    query JobStatus($id: ID!) {
+      node(id: $id) {
+        ... on Job {
+          id
+          done
+        }
+      }
+    }
+  `;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const data = await fetchGraphqlJson(query, { id: normalizedJobId });
+    if (data.node?.done) {
+      return true;
+    }
+
+    await sleep(500);
+  }
+
+  return false;
 }
 
 async function cancelShopifyOrderWithoutRefund(orderRecord, refundRecord, options = {}) {
@@ -1096,11 +1207,23 @@ async function cancelShopifyOrderWithoutRefund(orderRecord, refundRecord, option
     throw new Error(errors.map((entry) => entry.message).join("; "));
   }
 
-  return {
+  const cancellation = {
     jobId: result.job?.id,
     done: Boolean(result.job?.done),
     cancelledAt: new Date().toISOString()
   };
+
+  if (cancellation.jobId && !cancellation.done) {
+    cancellation.done = await waitForShopifyJob(cancellation.jobId);
+  }
+
+  try {
+    cancellation.close = await closeShopifyOrder(orderId);
+  } catch (error) {
+    cancellation.closeError = String(error?.message || "Shopify order close failed.");
+  }
+
+  return cancellation;
 }
 
 async function cancelShopifyOrderByRecord(orderRecord) {
@@ -1124,6 +1247,7 @@ module.exports = {
   cancelShopifyOrderByRecord,
   completeDraftOrder,
   createDraftOrder,
+  createManualShopifyRefundRecord,
   findCustomerByPhone,
   formatAddressLines,
   getShopifyOrderRefundPreview,
