@@ -53,7 +53,7 @@ const UNIT_PRICE_BY_CATEGORY = {
 const SHIPPING_FEE = 10;
 const DEFAULT_SUBMIT_SHOPIFY_ORDER = /^(1|true|yes|on)$/i.test(String(process.env.SHOPIFY_SUBMIT_SHOPIFY_ORDER || "").trim());
 const DEFAULT_TWILIO_PAY_CONNECTOR = String(process.env.TWILIO_PAY_CONNECTOR || "Stripe_Connector").trim() || "Stripe_Connector";
-const PENNY_CC_CHARGE_AMOUNT = 0.01;
+const LIMITED_CC_CHARGE_AMOUNT = 0.51;
 const GOOGLE_ADDRESS_VALIDATION_API_KEY = String(process.env.GOOGLE_ADDRESS_VALIDATION_API_KEY || process.env.GOOGLE_MAPS_API_KEY || "").trim();
 const GOOGLE_ADDRESS_VALIDATION_URL = "https://addressvalidation.googleapis.com/v1:validateAddress";
 const ACCEPTED_ADDRESS_GRANULARITIES = new Set(["PREMISE", "SUB_PREMISE"]);
@@ -791,9 +791,9 @@ function buildPaymentCollectionConfig(preparedCheckout, runtimeConfig) {
 
   if (runtimeConfig?.chargeCreditCardOneCent) {
     return {
-      mode: "one-cent-card",
+      mode: "limited-card-charge",
       shouldCollectCard: true,
-      chargeAmount: PENNY_CC_CHARGE_AMOUNT
+      chargeAmount: LIMITED_CC_CHARGE_AMOUNT
     };
   }
 
