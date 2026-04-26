@@ -222,6 +222,7 @@ Current implementation:
 - Because Shopify phone search can return broad results, the IVR must only trust a returned customer/order address when the returned customer phone, order phone, shipping address phone, or billing address phone exactly matches the lookup phone after normalization.
 - If a saved address is found, the caller can use it, speak a different address, or try another phone number. Another lookup phone is stored with `linkedCallerPhone` so staff can see which call-in number used it.
 - Structured Shopify customer addresses are passed into `draftOrderCreate.shippingAddress`; spoken free-form addresses are stored on the local order record and included in draft order notes/custom attributes for staff review.
+- When phone lookup returns an exact Shopify customer match, keep the customer metadata on the session shipping address even if the customer has no saved address. Draft order creation should attach that customer with `DraftOrderInput.purchasingEntity.customerId` rather than the deprecated top-level `customerId`, and may still send an explicit `shippingAddress` when the caller supplies or confirms one.
 - match the IVR cart line to a cached preorder Shopify variant
 - keep `variantId`, `sku`, and Shopify `price` in the preorder cache
 - create a draft order with:

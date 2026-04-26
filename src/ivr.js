@@ -2790,14 +2790,29 @@ function shippingAddressFromCustomer(customer, source, linkedCallerPhone) {
   };
 }
 
+function shippingCustomerFromPendingLookup(session) {
+  const customer = session?.pendingShippingAddressLookup?.customer;
+  if (!customer || typeof customer !== "object" || !String(customer.id || "").trim()) {
+    return undefined;
+  }
+
+  return {
+    id: String(customer.id || "").trim(),
+    displayName: String(customer.displayName || "").trim() || undefined,
+    phone: String(customer.phone || "").trim() || undefined
+  };
+}
+
 function shippingAddressFromSpeech(rawAddress, form, session) {
   const now = new Date().toISOString();
+  const customer = shippingCustomerFromPendingLookup(session);
   return {
     source: "spoken",
     status: "needs-review",
     raw: String(rawAddress || "").trim(),
     lookupPhone: String(session?.pendingShippingAddressLookup?.lookupPhone || session?.shippingAddress?.lookupPhone || form?.From || session?.caller || "").trim(),
     linkedCallerPhone: String(form?.From || session?.caller || "").trim() || undefined,
+    customer,
     updatedAt: now
   };
 }

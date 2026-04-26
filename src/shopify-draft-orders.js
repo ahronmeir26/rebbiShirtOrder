@@ -537,6 +537,7 @@ async function createDraftOrder(orderRecord) {
   const phone = String(orderRecord.caller || "").trim();
   const discountCode = String(orderRecord.discountCode || "").trim();
   const shippingAddress = orderRecord.shippingAddress && typeof orderRecord.shippingAddress === "object" ? orderRecord.shippingAddress : null;
+  const shopifyCustomerId = String(shippingAddress?.customer?.id || "").trim();
   const draftShippingAddress = addressToDraftOrderInput(shippingAddress?.address);
   const addressLines = formatAddressLines(shippingAddress?.address);
   const rawSpokenAddress = String(shippingAddress?.raw || "").trim();
@@ -576,6 +577,9 @@ async function createDraftOrder(orderRecord) {
   if (shippingAddress?.source) {
     customAttributes.push({ key: "shipping_address_source", value: String(shippingAddress.source) });
   }
+  if (shopifyCustomerId) {
+    customAttributes.push({ key: "shopify_customer_id", value: shopifyCustomerId });
+  }
   if (shippingAddress?.verificationStatus) {
     customAttributes.push({ key: "shipping_address_verification", value: String(shippingAddress.verificationStatus).slice(0, 255) });
   }
@@ -610,6 +614,7 @@ async function createDraftOrder(orderRecord) {
           currencyCode: "USD"
         }
       },
+      ...(shopifyCustomerId ? { purchasingEntity: { customerId: shopifyCustomerId } } : {}),
       ...(draftShippingAddress ? { shippingAddress: draftShippingAddress } : {}),
       customAttributes,
       ...(discountCode ? { discountCodes: [discountCode] } : {})

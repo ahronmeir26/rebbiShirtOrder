@@ -11,14 +11,25 @@ const initialState = {
   preview: null
 };
 
+function friendlyErrorMessage(error, fallback = "Could not check refund availability.") {
+  const message = String(error?.message || error || "").trim();
+  return /^(load failed|failed to fetch|networkerror)$/i.test(message) ? fallback : message || fallback;
+}
+
 function selectedOrderId() {
   return String(shopify?.data?.selected?.[0]?.id || "").trim();
 }
 
 async function postRefundAction(body) {
+  const token = await shopify?.auth?.idToken?.();
+  const headers = { "Content-Type": "application/json" };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch("/api/shopify/refund-action", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body)
   });
   const payload = await response.json().catch(() => ({}));
@@ -42,7 +53,7 @@ function Extension() {
       })
       .catch((error) => {
         if (!active) return;
-        setState((current) => ({ ...current, loading: false, error: error.message }));
+        setState((current) => ({ ...current, loading: false, error: friendlyErrorMessage(error) }));
       });
 
     return () => {
@@ -67,7 +78,11 @@ function Extension() {
       }));
       setTimeout(() => shopify.close(), 1200);
     } catch (error) {
-      setState((current) => ({ ...current, submitting: false, error: error.message }));
+      setState((current) => ({
+        ...current,
+        submitting: false,
+        error: friendlyErrorMessage(error, "Could not refund this order.")
+      }));
     }
   }, [orderId]);
 
@@ -90,7 +105,7 @@ function Extension() {
         {state.preview?.reason && !canRefund ? <s-banner tone="warning">{state.preview.reason}</s-banner> : null}
         {state.success ? <s-banner tone="success">{state.success}</s-banner> : null}
 
-        {!state.loading && !state.success ? (
+        {!state.loading && canRefund && !state.error && !state.success ? (
           <s-box>
             <s-text>
               This will refund the Stripe payment saved by the IVR dashboard for {orderLabel}.
