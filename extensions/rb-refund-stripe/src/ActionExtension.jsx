@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
