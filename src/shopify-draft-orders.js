@@ -1135,18 +1135,16 @@ async function waitForShopifyJob(jobId) {
 
   const query = `
     query JobStatus($id: ID!) {
-      node(id: $id) {
-        ... on Job {
-          id
-          done
-        }
+      job(id: $id) {
+        id
+        done
       }
     }
   `;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const data = await fetchGraphqlJson(query, { id: normalizedJobId });
-    if (data.node?.done) {
+    if (data.job?.done) {
       return true;
     }
 
