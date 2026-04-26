@@ -2479,16 +2479,22 @@ function normalizeCartPlaybackSelection(input) {
 function isRepeatPromptSubmission(form) {
   const digits = typeof form?.Digits === "string" ? form.Digits.trim() : "";
   const speech = typeof form?.SpeechResult === "string" ? form.SpeechResult.trim() : "";
+  const hasDigits = Object.prototype.hasOwnProperty.call(form || {}, "Digits");
+  const hasSpeech = Object.prototype.hasOwnProperty.call(form || {}, "SpeechResult");
 
   if (speech) {
     return false;
+  }
+
+  if (!hasDigits && !hasSpeech) {
+    return true;
   }
 
   if (digits === "#") {
     return true;
   }
 
-  return Object.prototype.hasOwnProperty.call(form || {}, "Digits") && digits === "";
+  return hasDigits && digits === "";
 }
 
 function discountCodeContextTarget(context) {
