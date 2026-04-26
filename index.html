@@ -75,8 +75,17 @@
       }
 
       button:disabled {
+        background: var(--accent-soft);
+        border-color: var(--line);
+        color: var(--muted);
         cursor: not-allowed;
         opacity: 0.6;
+      }
+
+      button:disabled:hover {
+        background: var(--accent-soft);
+        border-color: var(--line);
+        color: var(--muted);
       }
 
       .shell {
@@ -320,6 +329,13 @@
         justify-content: space-between;
         gap: 10px;
         align-items: center;
+      }
+
+      .order-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
 
       .detail-panel {
@@ -638,6 +654,7 @@
       let ordersState = [];
       let selectedOrderId = "";
       let refundingOrderId = "";
+      let cancelingOrderId = "";
 
       function appUrl(path) {
         return `${appPrefix}${path}`;
@@ -721,6 +738,14 @@
 
       function isRefunded(order) {
         return Boolean(order.stripeRefund?.id || order.refundedAt || String(order.shopifyOrder?.financialStatus || "").toUpperCase() === "REFUNDED");
+      }
+
+      function isCanceled(order) {
+        return Boolean(order.cancelledAt || order.shopifyOrder?.cancelled || order.shopifyOrder?.cancelledAt);
+      }
+
+      function canCancel(order) {
+        return Boolean(!isCanceled(order) && order.shopifyOrder?.id);
       }
 
       function canRefund(order) {
@@ -871,8 +896,12 @@
       function renderOrderCard(order) {
         const selected = String(order.id || "") === selectedOrderId;
         const refunded = isRefunded(order);
+        const canceled = isCanceled(order);
+        const orderId = String(order.id || "");
+        const cancelAvailable = canCancel(order);
+        const refundAvailable = canRefund(order);
         return `
-          <article class="order-card${selected ? " active" : ""}" data-select-order="${escapeHtml(order.id || "")}" tabindex="0">
+          <article class="order-card${selected ? " active" : ""}" data-select-order="${escapeHtml(orderId)}" tabindex="0">
             <div class="card-top">
               <div>
                 <div class="order-number">${escapeHtml(orderNumber(order))}</div>
@@ -882,6 +911,7 @@
                 </div>
               </div>
               ${refunded ? '<span class="pill refunded">Refunded</span>' : ""}
+              ${canceled && !refunded ? '<span class="pill refunded">Canceled</span>' : ""}
             </div>
             <div class="pill-row">
               <span class="pill">${escapeHtml(formatMoney(order.totalPrice || 0, order.currencyCode || "USD"))}</span>
@@ -890,9 +920,14 @@
             </div>
             <div class="card-actions">
               <span class="muted">${escapeHtml(order.shopifyOrder?.id ? "Submitted to Shopify" : "Draft or local record")}</span>
-              <button class="${canRefund(order) ? "danger" : "secondary"}" type="button" data-refund-order="${escapeHtml(order.id || "")}" ${canRefund(order) && refundingOrderId !== order.id ? "" : "disabled"}>
-                ${refundingOrderId === order.id ? "Canceling..." : refunded ? "Canceled & Refunded" : "Cancel & Refund"}
-              </button>
+              <div class="order-actions">
+                <button class="secondary" type="button" data-cancel-order="${escapeHtml(orderId)}" title="${escapeHtml(cancelAvailable ? "Cancel Shopify order" : "Cancel unavailable")}" ${cancelAvailable && cancelingOrderId !== orderId ? "" : "disabled"}>
+                  ${cancelingOrderId === orderId ? "Canceling..." : canceled ? "Canceled" : "Cancel"}
+                </button>
+                <button class="${refundAvailable ? "danger" : "secondary"}" type="button" data-refund-order="${escapeHtml(orderId)}" title="${escapeHtml(refundAvailable ? "Refund Stripe payment" : "Refund unavailable")}" ${refundAvailable && refundingOrderId !== orderId ? "" : "disabled"}>
+                  ${refundingOrderId === orderId ? "Refunding..." : refunded ? "Refunded" : "Refund"}
+                </button>
+              </div>
             </div>
           </article>
         `;
@@ -1092,13 +1127,41 @@
             throw new Error(payload.error || `Request failed with ${response.status}`);
           }
           ordersState = ordersState.map((order) => (String(order.id || "") === orderId ? payload.order : order));
-          statusEl.textContent = payload.order.shopifyRefundMarkError
-            ? "Stripe refunded. Shopify cancel/refund record needs attention."
-            : "Stripe refunded. Shopify order canceled and marked refunded.";
+          statusEl.textContent = "Stripe payment refunded.";
         } catch (error) {
           statusEl.textContent = `Could not refund order: ${error.message}`;
         } finally {
           refundingOrderId = "";
+          renderOrders();
+        }
+      }
+
+      async function cancelOrder(orderId) {
+        if (!orderId || cancelingOrderId) return;
+        cancelingOrderId = orderId;
+        renderOrders();
+        statusEl.textContent = "Canceling Shopify order...";
+
+        try {
+          const response = await fetch(authorizedAppUrl("/api/orders/cancel"), {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ orderId })
+          });
+          if (response.status === 401) {
+            redirectToLogin();
+            return;
+          }
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || `Request failed with ${response.status}`);
+          }
+          ordersState = ordersState.map((order) => (String(order.id || "") === orderId ? payload.order : order));
+          statusEl.textContent = "Shopify order canceled.";
+        } catch (error) {
+          statusEl.textContent = `Could not cancel order: ${error.message}`;
+        } finally {
+          cancelingOrderId = "";
           renderOrders();
         }
       }
@@ -1160,6 +1223,13 @@
       pennyCcToggle.addEventListener("change", saveSettings);
       searchEl.addEventListener("input", renderOrders);
       ordersEl.addEventListener("click", (event) => {
+        const cancelButton = event.target.closest("[data-cancel-order]");
+        if (cancelButton) {
+          event.stopPropagation();
+          cancelOrder(cancelButton.getAttribute("data-cancel-order"));
+          return;
+        }
+
         const refundButton = event.target.closest("[data-refund-order]");
         if (refundButton) {
           event.stopPropagation();

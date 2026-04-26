@@ -12,6 +12,9 @@ module.exports = async function handler(req, res) {
     } else if (route === "caller-discounts-clear") {
       current.searchParams.delete("route");
       req.url = `/api/admin/caller-discounts/clear${current.search}`;
+    } else if (route === "cancel") {
+      current.searchParams.delete("route");
+      req.url = `/api/orders/cancel${current.search}`;
     } else {
       req.url = `/api/orders/refund${current.search}`;
     }

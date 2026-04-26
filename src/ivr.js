@@ -33,7 +33,7 @@ const {
   formatAddressLines,
   getShopifyOrderRefundPreview,
   lookupDiscountCode,
-  cancelAndMarkShopifyOrderRefunded,
+  cancelShopifyOrderByRecord,
   normalizePhoneForShopify,
   refundShopifyOrderByReference,
   refundShopifyOrderByNumber,
@@ -3782,25 +3782,60 @@ async function handleRefundOrder(req, res) {
     }
   };
 
-  if (updatedOrder.shopifyOrder?.id) {
-    try {
-      const shopifyRefundMark = await cancelAndMarkShopifyOrderRefunded(updatedOrder, {
-        amount: stripeRefund.amount,
-        currency: stripeRefund.currency,
-        stripeRefundId: stripeRefund.id
-      });
-      updatedOrder.shopifyRefundMark = shopifyRefundMark;
-      updatedOrder.shopifyOrder = {
-        ...updatedOrder.shopifyOrder,
-        cancelled: true,
-        cancelledAt: shopifyRefundMark.cancelledAt,
-        financialStatus: shopifyRefundMark.financialStatus || "REFUNDED",
-        refundStatus: shopifyRefundMark.refundStatus || "REFUNDED"
-      };
-    } catch (error) {
-      updatedOrder.shopifyRefundMarkError = String(error?.message || "").trim() || "Unknown Shopify refund marking error.";
+  await saveOrder(updatedOrder);
+  json(res, 200, {
+    ok: true,
+    order: {
+      ...updatedOrder,
+      items: Array.isArray(updatedOrder.items) ? updatedOrder.items.map(normalizeStoredItem) : []
     }
+  });
+}
+
+async function handleCancelOrder(req, res) {
+  const form = await parseFormBody(req);
+  const orderId = String(form.orderId || "").trim();
+
+  if (!orderId) {
+    json(res, 400, { error: "Order id is required." });
+    return;
   }
+
+  const orders = await loadOrders();
+  const orderRecord = orders.find((order) => String(order?.id || "") === orderId);
+  if (!orderRecord) {
+    json(res, 404, { error: "Order not found." });
+    return;
+  }
+
+  if (orderRecord.shopifyOrder?.cancelled || orderRecord.shopifyOrder?.cancelledAt || orderRecord.cancelledAt) {
+    json(res, 409, { error: "This order is already marked canceled.", order: orderRecord });
+    return;
+  }
+
+  if (!orderRecord.shopifyOrder?.id) {
+    json(res, 400, { error: "Only submitted Shopify orders can be canceled from the dashboard." });
+    return;
+  }
+
+  let cancellation;
+  try {
+    cancellation = await cancelShopifyOrderByRecord(orderRecord);
+  } catch (error) {
+    json(res, 400, { error: String(error?.message || "Shopify cancellation failed.") });
+    return;
+  }
+
+  const updatedOrder = {
+    ...orderRecord,
+    cancelledAt: cancellation.cancelledAt,
+    shopifyCancellation: cancellation,
+    shopifyOrder: {
+      ...(orderRecord.shopifyOrder && typeof orderRecord.shopifyOrder === "object" ? orderRecord.shopifyOrder : {}),
+      cancelled: true,
+      cancelledAt: cancellation.cancelledAt
+    }
+  };
 
   await saveOrder(updatedOrder);
   json(res, 200, {
@@ -4847,6 +4882,10 @@ async function routeRequest(req, res, pathname, baseUrl) {
       json(res, 200, []);
     }
     return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/orders/cancel") {
+    return handleCancelOrder(req, res);
   }
 
   if (req.method === "POST" && (pathname === "/api/orders" || pathname === "/api/orders/refund")) {

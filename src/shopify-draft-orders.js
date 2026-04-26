@@ -1032,7 +1032,7 @@ async function createManualShopifyRefundRecord(orderRecord, refund) {
   };
 }
 
-async function cancelShopifyOrderWithoutRefund(orderRecord, refundRecord) {
+async function cancelShopifyOrderWithoutRefund(orderRecord, refundRecord, options = {}) {
   const orderId = String(orderRecord?.shopifyOrder?.id || "").trim();
   if (!orderId) {
     throw new Error("Missing Shopify order ID.");
@@ -1077,7 +1077,7 @@ async function cancelShopifyOrderWithoutRefund(orderRecord, refundRecord) {
     },
     restock: true,
     reason: "CUSTOMER",
-    staffNote: `Canceled after external Stripe refund ${String(refundRecord?.stripeRefundId || "").trim() || "created"}.`
+    staffNote: String(options.staffNote || "").trim() || `Canceled after external Stripe refund ${String(refundRecord?.stripeRefundId || "").trim() || "created"}.`
   });
   const result = data.orderCancel || {};
   const errors = [
@@ -1095,6 +1095,12 @@ async function cancelShopifyOrderWithoutRefund(orderRecord, refundRecord) {
   };
 }
 
+async function cancelShopifyOrderByRecord(orderRecord) {
+  return cancelShopifyOrderWithoutRefund(orderRecord, null, {
+    staffNote: `Canceled from IVR dashboard without issuing a Stripe refund for order ${String(orderRecord?.id || "").trim() || "unknown"}.`
+  });
+}
+
 async function cancelAndMarkShopifyOrderRefunded(orderRecord, refund) {
   const refundRecord = await createManualShopifyRefundRecord(orderRecord, refund);
   const cancellation = await cancelShopifyOrderWithoutRefund(orderRecord, refundRecord);
@@ -1107,6 +1113,7 @@ async function cancelAndMarkShopifyOrderRefunded(orderRecord, refund) {
 
 module.exports = {
   cancelAndMarkShopifyOrderRefunded,
+  cancelShopifyOrderByRecord,
   completeDraftOrder,
   createDraftOrder,
   findCustomerByPhone,

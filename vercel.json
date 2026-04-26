@@ -26,6 +26,10 @@
       "destination": "/api/orders?route=shopify-refund-action"
     },
     {
+      "source": "/api/orders/cancel",
+      "destination": "/api/orders?route=cancel"
+    },
+    {
       "source": "/shopify/refund",
       "destination": "/api/orders?route=shopify-refund-page"
     },
