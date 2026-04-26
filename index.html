@@ -633,6 +633,7 @@
         const params = new URLSearchParams(window.location.search);
         return params.has("hmac") && (params.has("shop") || params.has("host")) ? window.location.search : "";
       })();
+      const isShopifyLaunch = Boolean(shopifyLaunchSearch);
       let timer = null;
       let ordersState = [];
       let selectedOrderId = "";
@@ -658,6 +659,10 @@
       }
 
       brandLogo.src = appUrl("/logo-aistone.png");
+      if (isShopifyLaunch) {
+        logoutButton.hidden = true;
+        logoutButton.disabled = true;
+      }
 
       function formatTime(value) {
         if (!value) return "Unknown";
@@ -1141,6 +1146,7 @@
         window.location.href = authorizedAppUrl("/testivr");
       });
       logoutButton.addEventListener("click", () => {
+        if (isShopifyLaunch) return;
         window.location.href = appUrl("/logout");
       });
       autoRefresh.addEventListener("change", setAutoRefresh);
