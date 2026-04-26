@@ -2519,10 +2519,6 @@ function hasConfirmedShippingAddress(session, callSid) {
   );
 }
 
-function createAddressConfirmationToken() {
-  return crypto.randomBytes(12).toString("hex");
-}
-
 function addressConfirmationTokenFromRequest(req) {
   const current = new URL(String(req.url || "/"), "http://localhost");
   return String(current.searchParams.get("addressConfirmation") || "").trim();
@@ -2712,16 +2708,6 @@ function confirmShippingAddressForCall(session, callSid) {
 
   session.shippingAddress.confirmedCallSid = String(callSid || "").trim();
   session.shippingAddress.confirmedAt = new Date().toISOString();
-}
-
-function prepareConfirmedAddressFinalizePath(session) {
-  if (!session.shippingAddress || typeof session.shippingAddress !== "object") {
-    return "/api/twilio/order/finalize";
-  }
-
-  const token = createAddressConfirmationToken();
-  session.shippingAddress.finalizeConfirmationToken = token;
-  return `/api/twilio/order/finalize?addressConfirmation=${encodeURIComponent(token)}`;
 }
 
 function normalizeAddressReviewSelection(input) {
@@ -3769,10 +3755,13 @@ async function handleShippingAddressReview(req, res, baseUrl) {
       };
       confirmShippingAddressForCall(session, activeCallSid(form, session));
       delete session.pendingShippingAddressLookup;
-      const finalizePath = prepareConfirmedAddressFinalizePath(session);
       await persistSessionState(key, session);
-      xml(res, 200, twiml([say("Shipping address saved."), redirect(baseUrl, finalizePath)]));
-      return;
+      return handleFinalizeOrder(req, res, baseUrl, {
+        form,
+        key,
+        session,
+        introParts: [say("Shipping address saved.")]
+      });
     }
 
     xml(res, 200, shippingAddressSpeechResponse(baseUrl));
@@ -3805,6 +3794,20 @@ async function handleShippingAddressSpoken(req, res, baseUrl) {
   if (!spoken) {
     xml(res, 200, shippingAddressSpeechResponse(baseUrl));
     return;
+  }
+
+  if (!GOOGLE_ADDRESS_VALIDATION_API_KEY) {
+    session.shippingAddress = shippingAddressFromSpeech(spoken, form, session);
+    confirmShippingAddressForCall(session, activeCallSid(form, session));
+    delete session.pendingShippingAddressLookup;
+    delete session.lastShippingAddressValidation;
+    await persistSessionState(key, session);
+    return handleFinalizeOrder(req, res, baseUrl, {
+      form,
+      key,
+      session,
+      introParts: [say("Shipping address saved. We will include it for staff review.")]
+    });
   }
 
   const validation = await validateSpokenShippingAddress(spoken);
@@ -4883,9 +4886,14 @@ async function handlePostAddMenu(req, res, baseUrl) {
   xml(res, 200, invalidSelectionResponse(baseUrl, "Invalid entry. Try again.", "/api/twilio/order/next"));
 }
 
-async function handleFinalizeOrder(req, res, baseUrl) {
-  const form = await parseFormBody(req);
-  const { key, session } = await getSession(form.CallSid, form.From);
+async function handleFinalizeOrder(req, res, baseUrl, existing = {}) {
+  const form = existing.form || (await parseFormBody(req));
+  const sessionRecord = existing.session
+    ? { key: existing.key || sessionKeyForCaller(form.CallSid, form.From), session: existing.session }
+    : await getSession(form.CallSid, form.From);
+  const { key, session } = sessionRecord;
+  const introParts = Array.isArray(existing.introParts) ? existing.introParts : [];
+  const finalizeTwiml = (parts) => twiml([...introParts, ...parts]);
   const addressConfirmationToken = addressConfirmationTokenFromRequest(req);
   if (addressConfirmationTokenMatches(session, addressConfirmationToken)) {
     confirmShippingAddressForCall(session, activeCallSid(form, session));
@@ -4911,7 +4919,7 @@ async function handleFinalizeOrder(req, res, baseUrl) {
       xml(
         res,
         200,
-        twiml([
+        finalizeTwiml([
           say("We could not verify pre order availability right now. Please try again in a few minutes."),
           redirect(baseUrl, "/api/twilio/order/summary")
         ])
@@ -4941,7 +4949,7 @@ async function handleFinalizeOrder(req, res, baseUrl) {
     xml(
       res,
       200,
-      twiml([
+      finalizeTwiml([
         say(
           `We removed ${unresolvedItems.length} shirt${unresolvedItems.length === 1 ? "" : "s"} from your cart that ${unresolvedItems.length === 1 ? "is" : "are"} no longer available for pre order. Please review your cart and try again.`
         ),
@@ -4955,7 +4963,7 @@ async function handleFinalizeOrder(req, res, baseUrl) {
     xml(
       res,
       200,
-      twiml([
+      finalizeTwiml([
         say("Your cart is empty. There is nothing to order."),
         redirect(baseUrl, "/api/twilio/voice")
       ])
@@ -4965,7 +4973,7 @@ async function handleFinalizeOrder(req, res, baseUrl) {
 
   if (!hasConfirmedShippingAddress(session, activeCallSid(form, session))) {
     await persistSessionState(key, session);
-    xml(res, 200, twiml([redirect(baseUrl, "/api/twilio/order/address/start")]));
+    xml(res, 200, finalizeTwiml([redirect(baseUrl, "/api/twilio/order/address/start")]));
     return;
   }
 
@@ -4997,11 +5005,11 @@ async function handleFinalizeOrder(req, res, baseUrl) {
       payment: buildSkippedPaymentSummary(session.pendingCheckout, paymentCollection.mode === "zero-total" ? "zero-total" : "admin-toggle")
     });
     await resetSessionState(form.CallSid || key, form.From);
-    xml(res, 200, twiml([say(result.message), hangup()]));
+    xml(res, 200, finalizeTwiml([say(result.message), hangup()]));
     return;
   }
 
-  xml(res, 200, paymentPromptResponse(baseUrl, session.pendingCheckout));
+  xml(res, 200, finalizeTwiml([twimlBody(paymentPromptResponse(baseUrl, session.pendingCheckout))]));
 }
 
 async function handlePaymentStatus(req, res) {
