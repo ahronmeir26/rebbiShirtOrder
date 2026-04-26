@@ -1508,6 +1508,14 @@ function json(res, statusCode, payload) {
   res.end(JSON.stringify(payload, null, 2));
 }
 
+function jsonWithHeaders(res, statusCode, headers, payload) {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...(headers || {})
+  });
+  res.end(JSON.stringify(payload, null, 2));
+}
+
 function xml(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": "text/xml; charset=utf-8" });
   res.end(payload);
@@ -1776,6 +1784,20 @@ function isAuthorizedShopifyExtensionRequest(req) {
 
 function isAuthorizedShopifyRefundLaunch(req, launchQuery) {
   return isAdminAuthenticated(req) || verifyShopifySignedSearch(launchQuery) || isAuthorizedShopifyExtensionRequest(req);
+}
+
+function shopifyExtensionCorsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Max-Age": "600",
+    "Cache-Control": "no-store"
+  };
+}
+
+function shopifyRefundActionJson(res, statusCode, payload) {
+  jsonWithHeaders(res, statusCode, shopifyExtensionCorsHeaders(), payload);
 }
 
 function firstQueryValue(params, names) {
@@ -2326,13 +2348,13 @@ async function handleShopifyRefundAction(req, res) {
   try {
     form = await parseFormBody(req);
   } catch (_error) {
-    json(res, 400, { error: "Request body must be valid JSON or form data." });
+    shopifyRefundActionJson(res, 400, { error: "Request body must be valid JSON or form data." });
     return;
   }
 
   const launchQuery = String(form.launchQuery || "").trim();
   if (!isAuthorizedShopifyRefundLaunch(req, launchQuery)) {
-    json(res, 401, { error: "Unauthorized" });
+    shopifyRefundActionJson(res, 401, { error: "Unauthorized" });
     return;
   }
 
@@ -2342,16 +2364,16 @@ async function handleShopifyRefundAction(req, res) {
     orderNumber: form.orderNumber || form.orderName || form.name
   };
   if (!String(reference.orderId || reference.orderNumber || "").trim()) {
-    json(res, 400, { error: "Shopify did not provide an order reference for this action." });
+    shopifyRefundActionJson(res, 400, { error: "Shopify did not provide an order reference for this action." });
     return;
   }
 
   if (action === "preview") {
     try {
-      json(res, 200, await shopifyRefundActionPreview(reference));
+      shopifyRefundActionJson(res, 200, await shopifyRefundActionPreview(reference));
     } catch (error) {
       const statusCode = Number(error?.statusCode || 0);
-      json(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
+      shopifyRefundActionJson(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
         error: String(error?.message || "Could not preview the Shopify order refund.")
       });
     }
@@ -2359,7 +2381,7 @@ async function handleShopifyRefundAction(req, res) {
   }
 
   if (String(form.refundType || "full").trim().toLowerCase() !== "full") {
-    json(res, 400, { error: "Only full refunds are currently supported." });
+    shopifyRefundActionJson(res, 400, { error: "Only full refunds are currently supported." });
     return;
   }
 
@@ -2370,7 +2392,7 @@ async function handleShopifyRefundAction(req, res) {
       orderNumber: reference.orderNumber || preview.order.name
     });
     const updatedOrder = await refundStoredOrderRecord(storedOrder);
-    json(res, 200, {
+    shopifyRefundActionJson(res, 200, {
       ok: true,
       refund: updatedOrder.stripeRefund,
       shopifyRefund: updatedOrder.shopifyRefund || null,
@@ -2383,7 +2405,7 @@ async function handleShopifyRefundAction(req, res) {
     });
   } catch (error) {
     const statusCode = Number(error?.statusCode || 0);
-    json(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
+    shopifyRefundActionJson(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
       error: String(error?.message || "Stripe refund failed.")
     });
   }
@@ -5553,6 +5575,12 @@ async function routeRequest(req, res, pathname, baseUrl) {
 
   if (req.method === "POST" && pathname === "/api/shopify/refund-action") {
     return handleShopifyRefundAction(req, res);
+  }
+
+  if (req.method === "OPTIONS" && pathname === "/api/shopify/refund-action") {
+    res.writeHead(204, shopifyExtensionCorsHeaders());
+    res.end("");
+    return;
   }
 
   if (req.method === "GET" && pathname === "/api/admin/caller-discounts") {

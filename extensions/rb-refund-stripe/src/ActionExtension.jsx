@@ -10,6 +10,8 @@ const initialState = {
   error: "",
   preview: null
 };
+const APP_ORIGIN = "https://rebbi-shirt-order.vercel.app";
+const REFUND_ACTION_URL = `${APP_ORIGIN}/api/shopify/refund-action`;
 
 function friendlyErrorMessage(error, fallback = "Could not check refund availability.") {
   const message = String(error?.message || error || "").trim();
@@ -21,15 +23,9 @@ function selectedOrderId() {
 }
 
 async function postRefundAction(body) {
-  const token = await shopify?.auth?.idToken?.();
-  const headers = { "Content-Type": "application/json" };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const response = await fetch("/api/shopify/refund-action", {
+  const response = await fetch(REFUND_ACTION_URL, {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
   const payload = await response.json().catch(() => ({}));
