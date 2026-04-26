@@ -2519,6 +2519,22 @@ function hasConfirmedShippingAddress(session, callSid) {
   );
 }
 
+function createAddressConfirmationToken() {
+  return crypto.randomBytes(12).toString("hex");
+}
+
+function addressConfirmationTokenFromRequest(req) {
+  const current = new URL(String(req.url || "/"), "http://localhost");
+  return String(current.searchParams.get("addressConfirmation") || "").trim();
+}
+
+function addressConfirmationTokenMatches(session, token) {
+  const expected = String(session?.shippingAddress?.finalizeConfirmationToken || "").trim();
+  const actual = String(token || "").trim();
+
+  return Boolean(expected && actual && expected === actual && (session?.shippingAddress?.address || session?.shippingAddress?.raw));
+}
+
 function addressLinesForRecord(record) {
   return formatAddressLines(record?.address || record?.defaultAddress || record);
 }
@@ -2696,6 +2712,16 @@ function confirmShippingAddressForCall(session, callSid) {
 
   session.shippingAddress.confirmedCallSid = String(callSid || "").trim();
   session.shippingAddress.confirmedAt = new Date().toISOString();
+}
+
+function prepareConfirmedAddressFinalizePath(session) {
+  if (!session.shippingAddress || typeof session.shippingAddress !== "object") {
+    return "/api/twilio/order/finalize";
+  }
+
+  const token = createAddressConfirmationToken();
+  session.shippingAddress.finalizeConfirmationToken = token;
+  return `/api/twilio/order/finalize?addressConfirmation=${encodeURIComponent(token)}`;
 }
 
 function normalizeAddressReviewSelection(input) {
@@ -3743,8 +3769,9 @@ async function handleShippingAddressReview(req, res, baseUrl) {
       };
       confirmShippingAddressForCall(session, activeCallSid(form, session));
       delete session.pendingShippingAddressLookup;
+      const finalizePath = prepareConfirmedAddressFinalizePath(session);
       await persistSessionState(key, session);
-      xml(res, 200, twiml([say("Shipping address saved."), redirect(baseUrl, "/api/twilio/order/finalize")]));
+      xml(res, 200, twiml([say("Shipping address saved."), redirect(baseUrl, finalizePath)]));
       return;
     }
 
@@ -4859,6 +4886,13 @@ async function handlePostAddMenu(req, res, baseUrl) {
 async function handleFinalizeOrder(req, res, baseUrl) {
   const form = await parseFormBody(req);
   const { key, session } = await getSession(form.CallSid, form.From);
+  const addressConfirmationToken = addressConfirmationTokenFromRequest(req);
+  if (addressConfirmationTokenMatches(session, addressConfirmationToken)) {
+    confirmShippingAddressForCall(session, activeCallSid(form, session));
+    delete session.shippingAddress.finalizeConfirmationToken;
+    await persistSessionState(key, session);
+  }
+
   const runtimeConfig = await getRuntimeConfig();
   const shouldSubmitShopifyOrder = runtimeConfig.submitShopifyOrder;
   const hydratedItems = [];
