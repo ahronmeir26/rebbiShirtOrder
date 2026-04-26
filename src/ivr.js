@@ -812,10 +812,33 @@ function paymentPromptResponse(baseUrl, preparedCheckout) {
       action: "/api/twilio/order/payment/complete",
       amount: preparedCheckout.paymentChargeAmount || preparedCheckout.totalPrice,
       paymentConnector: DEFAULT_TWILIO_PAY_CONNECTOR,
-      description: `Rebbi Shirt Order ${preparedCheckout.totalQuantity} item${preparedCheckout.totalQuantity === 1 ? "" : "s"}`,
+      description: preparedCheckout.paymentDescription || defaultPaymentDescription(preparedCheckout),
       statusCallback: "/api/twilio/order/payment/status"
     })
   ]);
+}
+
+function defaultPaymentDescription(preparedCheckout) {
+  return `Rebbi Shirt Order ${preparedCheckout?.totalQuantity || 0} item${preparedCheckout?.totalQuantity === 1 ? "" : "s"}`;
+}
+
+function paymentReferencePart(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9:_-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 72);
+}
+
+function buildPaymentReference(key, form) {
+  const primary = paymentReferencePart(form?.CallSid || key);
+  return `ivr-${primary || "call"}-${Date.now().toString(36)}`;
+}
+
+function buildPaymentDescription(preparedCheckout, paymentReference) {
+  const base = defaultPaymentDescription(preparedCheckout);
+  const reference = paymentReferencePart(paymentReference);
+  return reference ? `${base} - ${reference}` : base;
 }
 
 function buildPaymentSummary(form, preparedCheckout) {
@@ -832,10 +855,15 @@ function buildPaymentSummary(form, preparedCheckout) {
     confirmationCode,
     processorReference: confirmationCode,
     stripePaymentIntentId,
+    paymentReference: String(preparedCheckout?.paymentReference || "").trim() || undefined,
+    paymentDescription: String(preparedCheckout?.paymentDescription || "").trim() || undefined,
+    profileId: String(form.ProfileId || "").trim() || undefined,
+    paymentToken: String(form.PaymentToken || "").trim() || undefined,
     method: String(form.PaymentMethod || "").trim() || "credit-card",
     cardType: String(form.PaymentCardType || "").trim() || undefined,
     cardNumber: String(form.PaymentCardNumber || "").trim() || undefined,
-    expirationDate: String(form.ExpirationDate || "").trim() || undefined
+    expirationDate: String(form.ExpirationDate || "").trim() || undefined,
+    postalCode: String(form.PaymentCardPostalCode || "").trim() || undefined
   };
 }
 
@@ -850,6 +878,68 @@ function buildSkippedPaymentSummary(preparedCheckout, reason) {
     connector: DEFAULT_TWILIO_PAY_CONNECTOR,
     method: "credit-card"
   };
+}
+
+function paymentFailureDebugDetails(form, preparedCheckout) {
+  return {
+    CallSid: form.CallSid,
+    From: form.From,
+    For: form.For,
+    Result: form.Result,
+    ErrorType: form.ErrorType,
+    PaymentError: form.PaymentError,
+    PayErrorCode: form.PayErrorCode || form.PaymentErrorCode,
+    ConnectorError: form.ConnectorError,
+    PaymentConfirmationCode: form.PaymentConfirmationCode,
+    paymentMode: preparedCheckout?.paymentMode,
+    paymentChargeAmount: preparedCheckout?.paymentChargeAmount,
+    orderAmount: preparedCheckout?.totalPrice,
+    connector: DEFAULT_TWILIO_PAY_CONNECTOR
+  };
+}
+
+function paymentFailureRetryMessage(form) {
+  const result = String(form.Result || "").trim().toLowerCase();
+  const errorType = String(form.ErrorType || "").trim().toLowerCase();
+  const paymentError = String(form.PaymentError || "").trim().toLowerCase();
+
+  if (result === "too-many-failed-attempts") {
+    return "The payment information was not accepted after several tries. Please enter it again.";
+  }
+
+  if (result === "payment-connector-error") {
+    return "The payment processor did not approve the card. Please try the card again or use another card.";
+  }
+
+  if (result === "caller-interrupted-with-star") {
+    return "Payment was cancelled. Please enter the card again when you are ready.";
+  }
+
+  if (result === "caller-hung-up") {
+    return "The payment session ended before approval. Please enter the card again.";
+  }
+
+  if (result === "validation-error") {
+    return "We could not start the payment correctly. Please try again in a few minutes.";
+  }
+
+  if (errorType.includes("postal") || paymentError.includes("postal")) {
+    return "The billing ZIP code was not accepted. Please enter the card again.";
+  }
+
+  if (errorType.includes("security") || paymentError.includes("security")) {
+    return "The security code was not accepted. Please enter the card again.";
+  }
+
+  if (errorType.includes("date") || paymentError.includes("date")) {
+    return "The expiration date was not accepted. Please enter the card again.";
+  }
+
+  if (errorType.includes("card") || paymentError.includes("card")) {
+    return "The card details were not accepted. Please enter them again.";
+  }
+
+  return "Your card was not approved. Please enter it again.";
 }
 
 function stripePaymentIntentFromValue(value) {
@@ -945,6 +1035,8 @@ async function submitPreparedOrder({ key, form, session, preparedCheckout, shoul
     discountCode: preparedCheckout.discountCode,
     discountCodeLookup: session.discountCode,
     shippingAddress: preparedCheckout.shippingAddress || session.shippingAddress,
+    paymentReference: preparedCheckout.paymentReference,
+    paymentDescription: preparedCheckout.paymentDescription,
     payment: payment && typeof payment === "object" ? payment : undefined,
     stripePaymentIntentId: payment?.stripePaymentIntentId || stripePaymentIntentFromValue(payment?.confirmationCode)
   };
@@ -3890,9 +3982,10 @@ function normalizeStripeSecretKey() {
 }
 
 function stripeRefundAmount(orderRecord) {
-  const paymentAmount = Number(orderRecord?.payment?.amount || 0);
-  if (paymentAmount > 0) {
-    return toMoneyAmount(paymentAmount);
+  const payment = orderRecord?.payment && typeof orderRecord.payment === "object" ? orderRecord.payment : null;
+  const hasSavedPaymentAmount = payment && payment.amount !== undefined && payment.amount !== null && String(payment.amount).trim() !== "";
+  if (hasSavedPaymentAmount) {
+    return toMoneyAmount(Number(payment.amount || 0));
   }
 
   return toMoneyAmount(orderRecord?.totalPrice || 0);
@@ -3907,6 +4000,7 @@ function stripeRefundIntentForOrder(orderRecord) {
     stripePaymentIntentFromValue(orderRecord?.stripePaymentIntentId) ||
     stripePaymentIntentFromValue(orderRecord?.payment?.stripePaymentIntentId) ||
     stripePaymentIntentFromValue(orderRecord?.payment?.paymentIntentId) ||
+    stripePaymentIntentFromValue(orderRecord?.payment?.processorReference) ||
     stripePaymentIntentFromValue(orderRecord?.payment?.confirmationCode)
   );
 }
@@ -3915,22 +4009,81 @@ function stripeRefundChargeForOrder(orderRecord) {
   return stripeChargeFromValue(orderRecord?.payment?.confirmationCode) || stripeChargeFromValue(orderRecord?.payment?.processorReference);
 }
 
+function stripeLookupReferenceForOrder(orderRecord) {
+  return String(orderRecord?.paymentReference || orderRecord?.payment?.paymentReference || "").trim();
+}
+
+function stripeLookupDescriptionForOrder(orderRecord) {
+  return String(orderRecord?.paymentDescription || orderRecord?.payment?.paymentDescription || "").trim();
+}
+
+function stripeIntentMatchesOrder(intent, orderRecord, cents) {
+  const reference = stripeLookupReferenceForOrder(orderRecord);
+  const expectedDescription = stripeLookupDescriptionForOrder(orderRecord);
+  if (!reference && !expectedDescription) {
+    return false;
+  }
+
+  const expectedCurrency = String(orderRecord?.payment?.currency || orderRecord?.currencyCode || "USD").trim().toLowerCase();
+  const intentCurrency = String(intent?.currency || "").trim().toLowerCase();
+  const descriptions = [
+    String(intent?.description || ""),
+    String(intent?.latest_charge?.description || "")
+  ];
+
+  return (
+    Number(intent?.amount || 0) === cents &&
+    intentCurrency === expectedCurrency &&
+    String(intent?.status || "").trim().toLowerCase() === "succeeded" &&
+    descriptions.some((description) => (reference && description.includes(reference)) || (expectedDescription && description === expectedDescription))
+  );
+}
+
+async function findStripePaymentIntentForOrder(orderRecord, cents, secretKey) {
+  const reference = stripeLookupReferenceForOrder(orderRecord);
+  const expectedDescription = stripeLookupDescriptionForOrder(orderRecord);
+  if (!reference && !expectedDescription) {
+    return "";
+  }
+
+  const createdAtMs = new Date(orderRecord?.createdAt || Date.now()).getTime();
+  const created = Math.floor((Number.isFinite(createdAtMs) ? createdAtMs : Date.now()) / 1000);
+  const params = new URLSearchParams({
+    limit: "100",
+    "created[gte]": String(created - 86400),
+    "created[lte]": String(created + 86400),
+    "expand[]": "data.latest_charge"
+  });
+  const response = await fetch(`https://api.stripe.com/v1/payment_intents?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${secretKey}`
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `Stripe payment lookup failed with ${response.status}.`);
+  }
+
+  const match = (Array.isArray(payload.data) ? payload.data : []).find((intent) => stripeIntentMatchesOrder(intent, orderRecord, cents));
+  return String(match?.id || "").trim();
+}
+
 async function createStripeRefund(orderRecord) {
   const secretKey = normalizeStripeSecretKey();
   if (!secretKey) {
     throw new Error("Missing STRIPE_SECRET_KEY.");
   }
 
-  const paymentIntent = stripeRefundIntentForOrder(orderRecord);
-  const charge = paymentIntent ? "" : stripeRefundChargeForOrder(orderRecord);
-  if (!paymentIntent && !charge) {
-    throw new Error("No Stripe PaymentIntent or charge was saved for this order.");
-  }
-
   const amount = stripeRefundAmount(orderRecord);
   const cents = stripeAmountInCents(amount);
   if (cents <= 0) {
     throw new Error("This order does not have a refundable Stripe amount.");
+  }
+
+  const paymentIntent = stripeRefundIntentForOrder(orderRecord) || await findStripePaymentIntentForOrder(orderRecord, cents, secretKey);
+  const charge = paymentIntent ? "" : stripeRefundChargeForOrder(orderRecord);
+  if (!paymentIntent && !charge) {
+    throw new Error("No Stripe PaymentIntent or charge was saved for this order.");
   }
 
   const params = new URLSearchParams({
@@ -4986,12 +5139,15 @@ async function handleFinalizeOrder(req, res, baseUrl, existing = {}) {
     currencyCode: "USD"
   });
   const paymentCollection = buildPaymentCollectionConfig(preparedCheckout, runtimeConfig);
+  const paymentReference = buildPaymentReference(key, form);
 
   session.pendingCheckout = {
     ...preparedCheckout,
     shouldSubmitShopifyOrder,
     paymentMode: paymentCollection.mode,
-    paymentChargeAmount: paymentCollection.chargeAmount
+    paymentChargeAmount: paymentCollection.chargeAmount,
+    paymentReference,
+    paymentDescription: buildPaymentDescription(preparedCheckout, paymentReference)
   };
   await persistSessionState(key, session);
 
@@ -5016,9 +5172,13 @@ async function handlePaymentStatus(req, res) {
   const form = await parseFormBody(req);
   logTwilioDebug("payment-status", {
     CallSid: form.CallSid,
+    From: form.From,
+    For: form.For,
+    ErrorType: form.ErrorType,
     PaymentConfirmationCode: form.PaymentConfirmationCode,
     PaymentError: form.PaymentError,
-    PaymentErrorCode: form.PaymentErrorCode,
+    PayErrorCode: form.PayErrorCode || form.PaymentErrorCode,
+    ConnectorError: form.ConnectorError,
     Result: form.Result
   });
   res.writeHead(204);
@@ -5043,12 +5203,13 @@ async function handlePaymentComplete(req, res, baseUrl) {
   }
 
   if (String(form.Result || "").trim().toLowerCase() !== "success") {
+    logTwilioDebug("payment-complete-failure", paymentFailureDebugDetails(form, preparedCheckout));
     await persistSessionState(key, session);
     xml(
       res,
       200,
       twiml([
-        say("Your card was not approved. Please enter it again."),
+        say(paymentFailureRetryMessage(form)),
         twimlBody(paymentPromptResponse(baseUrl, preparedCheckout))
       ])
     );

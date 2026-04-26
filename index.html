@@ -749,11 +749,19 @@
       }
 
       function canRefund(order) {
+        const paymentAmount = Number(order.payment?.amount || 0);
+        const paymentResult = String(order.payment?.result || "").trim().toLowerCase();
+        const confirmationCode = String(order.payment?.confirmationCode || "");
         return Boolean(
           !isRefunded(order) &&
+            paymentAmount > 0 &&
+            paymentResult === "success" &&
+            !confirmationCode.startsWith("TEST-") &&
             (order.stripePaymentIntentId ||
               order.payment?.stripePaymentIntentId ||
-              /^(pi|ch)_/.test(String(order.payment?.confirmationCode || "")) ||
+              order.paymentReference ||
+              order.payment?.paymentReference ||
+              /^(pi|ch)_/.test(confirmationCode) ||
               /^(pi|ch)_/.test(String(order.payment?.processorReference || "")))
         );
       }
@@ -994,6 +1002,7 @@
                 <p>Shopify draft: ${escapeHtml(order.shopifyDraftOrder?.name || "None")}</p>
                 <p>Shopify order: ${escapeHtml(order.shopifyOrder?.name || order.shopifyOrderNumber || "Not submitted")}</p>
                 <p>Stripe intent: ${escapeHtml(order.stripePaymentIntentId || order.payment?.stripePaymentIntentId || order.payment?.confirmationCode || "Not saved")}</p>
+                <p>Payment reference: ${escapeHtml(order.paymentReference || order.payment?.paymentReference || "Not saved")}</p>
                 <p>Payment: ${escapeHtml(order.payment?.result || "Unknown")} ${order.payment?.amount ? `/ ${escapeHtml(formatMoney(order.payment.amount, order.payment.currency || order.currencyCode || "USD"))}` : ""}</p>
                 ${order.shopifyOrderError ? `<p>Shopify submit error: ${escapeHtml(order.shopifyOrderError)}</p>` : ""}
                 ${order.shopifyRefundMarkError ? `<p>Shopify refund mark error: ${escapeHtml(order.shopifyRefundMarkError)}</p>` : ""}
