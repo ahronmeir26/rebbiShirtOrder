@@ -1476,6 +1476,15 @@ function isPublicAssetPath(pathname) {
   return pathname === "/logo-aistone.png" || pathname === "/health" || pathname === "/api/health";
 }
 
+function isAuthorizedShopifyDashboardLaunch(req) {
+  const current = new URL(String(req.url || "/"), "http://localhost");
+  if (!current.searchParams.has("hmac")) {
+    return false;
+  }
+
+  return verifyShopifySignedSearch(current.search);
+}
+
 function loginPathForRequest(req) {
   return buildMountedPath(req.url, "/login");
 }
@@ -3230,6 +3239,10 @@ async function authorizeRequest(req, res, pathname) {
 
   if (shouldEnforceAdminAuth(pathname)) {
     if (pathname === "/api/orders/shopify-refund" && isShopifyRefundBearerAuthenticated(req)) {
+      return true;
+    }
+
+    if (isAuthorizedShopifyDashboardLaunch(req)) {
       return true;
     }
 

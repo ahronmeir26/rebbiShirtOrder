@@ -629,6 +629,10 @@
       const pennyCcToggle = document.getElementById("penny-cc-toggle");
       const pennyCcNote = document.getElementById("penny-cc-note");
       const appPrefix = window.location.pathname === "/rso" || window.location.pathname.startsWith("/rso/") ? "/rso" : "";
+      const shopifyLaunchSearch = (() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.has("hmac") && (params.has("shop") || params.has("host")) ? window.location.search : "";
+      })();
       let timer = null;
       let ordersState = [];
       let selectedOrderId = "";
@@ -636,6 +640,21 @@
 
       function appUrl(path) {
         return `${appPrefix}${path}`;
+      }
+
+      function authorizedAppUrl(path) {
+        if (!shopifyLaunchSearch) {
+          return appUrl(path);
+        }
+
+        const url = new URL(appUrl(path), window.location.origin);
+        const launchParams = new URLSearchParams(shopifyLaunchSearch);
+        for (const [key, value] of launchParams.entries()) {
+          if (!url.searchParams.has(key)) {
+            url.searchParams.append(key, value);
+          }
+        }
+        return `${url.pathname}${url.search}`;
       }
 
       brandLogo.src = appUrl("/logo-aistone.png");
@@ -760,7 +779,7 @@
         pennyCcNote.textContent = "Saving...";
 
         try {
-          const response = await fetch(appUrl("/api/admin/settings"), {
+          const response = await fetch(authorizedAppUrl("/api/admin/settings"), {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: payload
@@ -992,7 +1011,7 @@
       async function loadOrders() {
         try {
           statusEl.textContent = "Loading orders...";
-          const response = await fetch(appUrl("/api/orders"), { cache: "no-store" });
+          const response = await fetch(authorizedAppUrl("/api/orders"), { cache: "no-store" });
           if (response.status === 401) {
             redirectToLogin();
             return;
@@ -1015,7 +1034,7 @@
 
       async function loadSavedDiscounts() {
         try {
-          const response = await fetch(appUrl("/api/admin/caller-discounts"), { cache: "no-store" });
+          const response = await fetch(authorizedAppUrl("/api/admin/caller-discounts"), { cache: "no-store" });
           if (response.status === 401) {
             redirectToLogin();
             return;
@@ -1030,7 +1049,7 @@
         if (!caller) return;
         statusEl.textContent = `Removing saved coupon for ${formatPhone(caller)}...`;
         try {
-          const response = await fetch(appUrl("/api/admin/caller-discounts/clear"), {
+          const response = await fetch(authorizedAppUrl("/api/admin/caller-discounts/clear"), {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({ caller })
@@ -1054,7 +1073,7 @@
           statusEl.textContent = "Refunding Stripe payment...";
 
         try {
-          const response = await fetch(appUrl("/api/orders"), {
+          const response = await fetch(authorizedAppUrl("/api/orders"), {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({ orderId })
@@ -1081,7 +1100,7 @@
 
       async function loadSettings() {
         try {
-          const response = await fetch(appUrl("/api/admin/settings"), { cache: "no-store" });
+          const response = await fetch(authorizedAppUrl("/api/admin/settings"), { cache: "no-store" });
           if (response.status === 401) {
             redirectToLogin();
             return;
@@ -1119,7 +1138,7 @@
         loadSavedDiscounts();
       });
       testIvrButton.addEventListener("click", () => {
-        window.location.href = appUrl("/testivr");
+        window.location.href = authorizedAppUrl("/testivr");
       });
       logoutButton.addEventListener("click", () => {
         window.location.href = appUrl("/logout");

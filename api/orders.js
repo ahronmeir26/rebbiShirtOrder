@@ -9,9 +9,15 @@ module.exports = async function handler(req, res) {
       req.url = "/api/orders/shopify-refund";
     } else if (route === "shopify-refund-action") {
       req.url = "/api/shopify/refund-action";
+    } else if (route === "caller-discounts-clear") {
+      current.searchParams.delete("route");
+      req.url = `/api/admin/caller-discounts/clear${current.search}`;
     } else {
-      req.url = "/api/orders/refund";
+      req.url = `/api/orders/refund${current.search}`;
     }
+  } else if (current.searchParams.get("route") === "caller-discounts") {
+    current.searchParams.delete("route");
+    req.url = `/api/admin/caller-discounts${current.search}`;
   } else if (current.searchParams.get("route") === "shopify-refund-page") {
     current.searchParams.delete("route");
     req.url = `/shopify/refund${current.search}`;
@@ -22,7 +28,7 @@ module.exports = async function handler(req, res) {
     current.searchParams.delete("route");
     req.url = `/shopify/debug${current.search}`;
   } else {
-    req.url = "/orders";
+    req.url = `/orders${current.search}`;
   }
 
   await handleHttpRequest(req, res);

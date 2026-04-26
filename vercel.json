@@ -38,6 +38,14 @@
       "destination": "/api/orders?route=shopify-debug-json"
     },
     {
+      "source": "/api/admin/caller-discounts",
+      "destination": "/api/orders?route=caller-discounts"
+    },
+    {
+      "source": "/api/admin/caller-discounts/clear",
+      "destination": "/api/orders?route=caller-discounts-clear"
+    },
+    {
       "source": "/testivr",
       "destination": "/testivr/index.html"
     },
