@@ -35,7 +35,6 @@ const {
   lookupDiscountCode,
   cancelShopifyOrderByRecord,
   normalizePhoneForShopify,
-  refundShopifyOrderByReference,
   refundShopifyOrderByNumber,
   toMoneyAmount
 } = require("./shopify-draft-orders");
@@ -1660,6 +1659,21 @@ function shopifyAppSecret() {
   return String(process.env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_API_SECRET || "").trim();
 }
 
+function shopifyClientId() {
+  const envClientId = String(process.env.SHOPIFY_CLIENT_ID || "").trim();
+  if (envClientId) {
+    return envClientId;
+  }
+
+  try {
+    const appConfig = fs.readFileSync(path.join(__dirname, "..", "shopify.app.toml"), "utf8");
+    const match = appConfig.match(/^\s*client_id\s*=\s*"([^"]+)"/m);
+    return String(match?.[1] || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
 function shopifyHmacMessageFromSearch(search) {
   const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
   params.delete("hmac");
@@ -1688,8 +1702,75 @@ function verifyShopifySignedSearch(search) {
   return timingSafeTextEqual(hmac, expected);
 }
 
+function base64UrlJson(value) {
+  return JSON.parse(Buffer.from(String(value || ""), "base64url").toString("utf8"));
+}
+
+function safeShopifyTokenUrlHost(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    return new URL(raw.startsWith("http") ? raw : `https://${raw}`).hostname.toLowerCase();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function verifyShopifySessionToken(token) {
+  const secret = shopifyAppSecret();
+  const clientId = shopifyClientId();
+  const parts = String(token || "").trim().split(".");
+  if (!secret || !clientId || parts.length !== 3) {
+    return null;
+  }
+
+  let header;
+  let payload;
+  try {
+    header = base64UrlJson(parts[0]);
+    payload = base64UrlJson(parts[1]);
+  } catch (_error) {
+    return null;
+  }
+
+  if (header?.alg !== "HS256") {
+    return null;
+  }
+
+  const expected = crypto.createHmac("sha256", secret).update(`${parts[0]}.${parts[1]}`, "utf8").digest("base64url");
+  if (!timingSafeTextEqual(parts[2], expected)) {
+    return null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (Number(payload.exp || 0) <= now || Number(payload.nbf || 0) > now + 5) {
+    return null;
+  }
+
+  const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (!aud.map((entry) => String(entry || "")).includes(clientId)) {
+    return null;
+  }
+
+  const destHost = safeShopifyTokenUrlHost(payload.dest);
+  const issHost = safeShopifyTokenUrlHost(payload.iss);
+  const configuredShop = safeShopifyTokenUrlHost(process.env.SHOPIFY_STORE_DOMAIN);
+  if (!destHost || (issHost && issHost !== destHost) || (configuredShop && destHost !== configuredShop)) {
+    return null;
+  }
+
+  return payload;
+}
+
+function isAuthorizedShopifyExtensionRequest(req) {
+  return Boolean(verifyShopifySessionToken(authorizationBearerToken(req)));
+}
+
 function isAuthorizedShopifyRefundLaunch(req, launchQuery) {
-  return isAdminAuthenticated(req) || verifyShopifySignedSearch(launchQuery);
+  return isAdminAuthenticated(req) || verifyShopifySignedSearch(launchQuery) || isAuthorizedShopifyExtensionRequest(req);
 }
 
 function firstQueryValue(params, names) {
@@ -1776,7 +1857,7 @@ function shopifyDebugReport(req, baseUrl) {
   const diagnostics = [];
 
   if (!hmacPresent) {
-    diagnostics.push("No Shopify hmac query parameter is present. A direct browser visit is expected to show this; a Shopify-launched app/admin link should include hmac, shop, host, and usually id.");
+    diagnostics.push("No Shopify hmac query parameter is present. A direct browser visit is expected to show this; the legacy fallback page needs hmac, shop, host, and usually id. The modal Admin action uses Shopify's Authorization token instead.");
   } else if (!hmacVerifiable) {
     diagnostics.push("Shopify hmac is present, but SHOPIFY_CLIENT_SECRET or SHOPIFY_API_SECRET is not set on this server.");
   } else if (!hmacValid) {
@@ -1784,10 +1865,10 @@ function shopifyDebugReport(req, baseUrl) {
   }
 
   if (!reference.orderId && !reference.orderNumber) {
-    diagnostics.push("No order reference was found in the query. For an order details admin link, Shopify should provide an id query parameter.");
+    diagnostics.push("No order reference was found in the query. The modal Admin action reads the selected order ID from the extension context; the legacy fallback page needs an id query parameter.");
   }
 
-  diagnostics.push("If this debug page works but RB refund stripe is not in More actions, the app extension is not registered/released on the installed Shopify app, the app is installed on a different client ID, or the order is outside the app's order-read scope.");
+  diagnostics.push("If this debug page works but RB refund stripe is not in More actions, the UI extension is not registered/released on the installed Shopify app, the app is installed on a different client ID, or the order is outside the app's order-read scope.");
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1823,12 +1904,12 @@ function shopifyDebugReport(req, baseUrl) {
       ]
     },
     extension: {
-      type: "admin_link",
+      type: "ui_extension",
       handle: "rb-refund-stripe",
       name: "RB refund stripe",
-      target: "admin.order-details.action.link",
-      url: "https://rebbi-shirt-order.vercel.app/shopify/refund",
-      note: "This TOML config must be deployed/released to the Shopify app. The absolute URL is intentional so Shopify opens the action in an external window instead of navigating inside the embedded app context."
+      target: "admin.order-details.action.render",
+      module: "./src/ActionExtension.jsx",
+      note: "This TOML config must be deployed/released to the Shopify app. The Admin action renders as a Shopify modal from the More actions menu and posts to the existing Vercel orders function."
     },
     vercelFunctionLimit: {
       used: apiFiles.length,
@@ -2114,7 +2195,7 @@ function renderShopifyRefundPage({ launchQuery, reference, preview, error }) {
   <body>
     <main>
       <h1>RB refund stripe</h1>
-      <p>Refund the selected Shopify order from the same Vercel app.</p>
+      <p>Refund the Stripe payment saved by the IVR dashboard for this Shopify order.</p>
       <section class="panel">
         ${error ? `<div class="notice error">${escapeXml(error)}</div>` : ""}
         <div class="summary">
@@ -2126,7 +2207,7 @@ function renderShopifyRefundPage({ launchQuery, reference, preview, error }) {
               : ""
           }
         </div>
-        <div class="notice">Full refunds are enabled now. Partial refunds will be added later on this same screen.</div>
+        <div class="notice">This uses the same Stripe refund path as the IVR dashboard.</div>
         <form id="refund-form">
           <input type="hidden" name="launchQuery" value="${escapeXml(launchQuery)}">
           <input type="hidden" name="orderId" value="${escapeXml(reference.orderId || "")}">
@@ -2134,9 +2215,9 @@ function renderShopifyRefundPage({ launchQuery, reference, preview, error }) {
           <input type="hidden" name="refundType" value="full">
           <label>
             <input id="confirm-refund" type="checkbox" ${canRefund ? "" : "disabled"}>
-            <span>I understand this will submit a full refund for ${escapeXml(orderLabel)}.</span>
+            <span>I understand this will refund the saved Stripe payment for ${escapeXml(orderLabel)}.</span>
           </label>
-          <button id="refund-button" type="submit" disabled>${canRefund ? "Refund full order" : "Refund unavailable"}</button>
+          <button id="refund-button" type="submit" disabled>${canRefund ? "Refund Stripe payment" : "Refund unavailable"}</button>
         </form>
         <p class="secondary" id="status"></p>
       </section>
@@ -2168,7 +2249,7 @@ function renderShopifyRefundPage({ launchQuery, reference, preview, error }) {
           if (!response.ok) {
             throw new Error(payload.error || "Refund failed.");
           }
-          statusEl.textContent = \`Refund created for \${payload.order?.name || "order"}.\`;
+          statusEl.textContent = \`Stripe refund created for \${payload.order?.name || "order"}.\`;
         } catch (error) {
           statusEl.textContent = error.message;
           button.disabled = false;
@@ -2188,7 +2269,7 @@ async function handleShopifyRefundPage(req, res) {
     htmlWithHeaders(res, 401, { "Cache-Control": "no-store", "Content-Security-Policy": "frame-ancestors https://admin.shopify.com https://*.myshopify.com" }, renderShopifyRefundPage({
       launchQuery,
       reference,
-      error: "This Shopify action link is not authorized."
+      error: "This Shopify action request is not authorized."
     }));
     return;
   }
@@ -2218,6 +2299,23 @@ async function handleShopifyRefundPage(req, res) {
   }));
 }
 
+async function shopifyRefundActionPreview(reference) {
+  const preview = await getShopifyOrderRefundPreview(reference);
+  const resolvedReference = {
+    orderId: reference.orderId || preview.order.id,
+    orderNumber: reference.orderNumber || preview.order.name
+  };
+  const storedOrder = await findStoredOrderByShopifyReference(resolvedReference);
+  const reason = stripeRefundAvailability(storedOrder);
+
+  return {
+    order: preview.order,
+    matchedOrderId: storedOrder?.id || "",
+    canRefund: Boolean(storedOrder && !reason),
+    reason
+  };
+}
+
 async function handleShopifyRefundAction(req, res) {
   let form;
   try {
@@ -2233,24 +2331,53 @@ async function handleShopifyRefundAction(req, res) {
     return;
   }
 
+  const action = String(form.action || "refund").trim().toLowerCase();
+  const reference = {
+    orderId: form.orderId,
+    orderNumber: form.orderNumber || form.orderName || form.name
+  };
+  if (!String(reference.orderId || reference.orderNumber || "").trim()) {
+    json(res, 400, { error: "Shopify did not provide an order reference for this action." });
+    return;
+  }
+
+  if (action === "preview") {
+    try {
+      json(res, 200, await shopifyRefundActionPreview(reference));
+    } catch (error) {
+      const statusCode = Number(error?.statusCode || 0);
+      json(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
+        error: String(error?.message || "Could not preview the Shopify order refund.")
+      });
+    }
+    return;
+  }
+
   if (String(form.refundType || "full").trim().toLowerCase() !== "full") {
     json(res, 400, { error: "Only full refunds are currently supported." });
     return;
   }
 
   try {
-    const result = await refundShopifyOrderByReference({
-      orderId: form.orderId,
-      orderNumber: form.orderNumber,
-      notify: parseBooleanInput(form.notify, false),
-      note: form.note || "Full refund requested from Shopify More actions via RB refund stripe.",
-      refund: { type: "full" }
+    const preview = await getShopifyOrderRefundPreview(reference);
+    const storedOrder = await findStoredOrderByShopifyReference({
+      orderId: reference.orderId || preview.order.id,
+      orderNumber: reference.orderNumber || preview.order.name
     });
-    json(res, 200, { ok: true, ...result });
+    const updatedOrder = await refundStoredOrderRecord(storedOrder);
+    json(res, 200, {
+      ok: true,
+      refund: updatedOrder.stripeRefund,
+      order: {
+        id: preview.order.id,
+        name: preview.order.name,
+        matchedOrderId: updatedOrder.id
+      }
+    });
   } catch (error) {
     const statusCode = Number(error?.statusCode || 0);
     json(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, {
-      error: String(error?.message || "Shopify refund failed.")
+      error: String(error?.message || "Stripe refund failed.")
     });
   }
 }
@@ -4123,6 +4250,111 @@ async function createStripeRefund(orderRecord) {
   };
 }
 
+function shopifyOrderNumericId(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/(?:Order\/)?(\d+)(?:$|\?)/);
+  return match ? match[1] : "";
+}
+
+function normalizeStoredShopifyOrderName(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  const compact = raw.replace(/\s+/g, "");
+  return /^\d+$/.test(compact) ? `#${compact}` : compact;
+}
+
+function storedOrderShopifyReferences(orderRecord) {
+  return {
+    id: String(orderRecord?.shopifyOrder?.id || "").trim(),
+    numericId: shopifyOrderNumericId(orderRecord?.shopifyOrder?.id),
+    names: [
+      orderRecord?.shopifyOrder?.name,
+      orderRecord?.shopifyOrder?.number,
+      orderRecord?.shopifyOrderNumber
+    ]
+      .map(normalizeStoredShopifyOrderName)
+      .filter(Boolean)
+  };
+}
+
+function storedOrderMatchesShopifyReference(orderRecord, reference) {
+  const refs = storedOrderShopifyReferences(orderRecord);
+  const requestedId = String(reference?.orderId || "").trim();
+  const requestedNumericId = shopifyOrderNumericId(requestedId);
+  const requestedName = normalizeStoredShopifyOrderName(reference?.orderNumber);
+
+  if (requestedId && refs.id && requestedId === refs.id) {
+    return true;
+  }
+
+  if (requestedNumericId && refs.numericId && requestedNumericId === refs.numericId) {
+    return true;
+  }
+
+  return Boolean(requestedName && refs.names.includes(requestedName));
+}
+
+async function findStoredOrderByShopifyReference(reference) {
+  const orders = await loadOrders();
+  return orders.find((orderRecord) => storedOrderMatchesShopifyReference(orderRecord, reference)) || null;
+}
+
+function stripeRefundAvailability(orderRecord) {
+  if (!orderRecord) {
+    return "This Shopify order is not matched to a saved IVR dashboard order.";
+  }
+
+  if (orderRecord.stripeRefund?.id) {
+    return "This order is already marked refunded in the IVR dashboard.";
+  }
+
+  if (paymentWasSkipped(orderRecord.payment)) {
+    return "This IVR order did not collect a Stripe payment.";
+  }
+
+  if (stripeRefundAmount(orderRecord) <= 0) {
+    return "This order does not have a refundable Stripe amount.";
+  }
+
+  if (!stripeRefundIntentForOrder(orderRecord) && !stripeRefundChargeForOrder(orderRecord) && !stripeLookupReferenceForOrder(orderRecord) && !stripeLookupDescriptionForOrder(orderRecord)) {
+    return "No Stripe PaymentIntent, charge, or lookup reference was saved for this order.";
+  }
+
+  return "";
+}
+
+async function refundStoredOrderRecord(orderRecord) {
+  const unavailableReason = stripeRefundAvailability(orderRecord);
+  if (unavailableReason) {
+    const error = new Error(unavailableReason);
+    error.statusCode = unavailableReason.includes("already marked") ? 409 : 400;
+    throw error;
+  }
+
+  const stripeRefund = await createStripeRefund(orderRecord);
+  const updatedOrder = {
+    ...orderRecord,
+    stripeRefund,
+    refundedAt: stripeRefund.createdAt,
+    refundStatus: stripeRefund.status || "succeeded",
+    payment: {
+      ...(orderRecord.payment && typeof orderRecord.payment === "object" ? orderRecord.payment : {}),
+      refunded: true,
+      refundedAt: stripeRefund.createdAt,
+      refundId: stripeRefund.id
+    }
+  };
+
+  await saveOrder(updatedOrder);
+  return {
+    ...updatedOrder,
+    items: Array.isArray(updatedOrder.items) ? updatedOrder.items.map(normalizeStoredItem) : []
+  };
+}
+
 async function handleRefundOrder(req, res) {
   const form = await parseFormBody(req);
   const orderId = String(form.orderId || "").trim();
@@ -4139,40 +4371,16 @@ async function handleRefundOrder(req, res) {
     return;
   }
 
-  if (orderRecord.stripeRefund?.id) {
-    json(res, 409, { error: "This order is already marked refunded.", order: orderRecord });
-    return;
-  }
-
-  let stripeRefund;
   try {
-    stripeRefund = await createStripeRefund(orderRecord);
+    const updatedOrder = await refundStoredOrderRecord(orderRecord);
+    json(res, 200, {
+      ok: true,
+      order: updatedOrder
+    });
   } catch (error) {
-    json(res, 400, { error: String(error?.message || "Stripe refund failed.") });
-    return;
+    const statusCode = Number(error?.statusCode || 0);
+    json(res, statusCode >= 400 && statusCode < 600 ? statusCode : 400, { error: String(error?.message || "Stripe refund failed.") });
   }
-
-  const updatedOrder = {
-    ...orderRecord,
-    stripeRefund,
-    refundedAt: stripeRefund.createdAt,
-    refundStatus: stripeRefund.status || "succeeded",
-    payment: {
-      ...(orderRecord.payment && typeof orderRecord.payment === "object" ? orderRecord.payment : {}),
-      refunded: true,
-      refundedAt: stripeRefund.createdAt,
-      refundId: stripeRefund.id
-    }
-  };
-
-  await saveOrder(updatedOrder);
-  json(res, 200, {
-    ok: true,
-    order: {
-      ...updatedOrder,
-      items: Array.isArray(updatedOrder.items) ? updatedOrder.items.map(normalizeStoredItem) : []
-    }
-  });
 }
 
 async function handleCancelOrder(req, res) {

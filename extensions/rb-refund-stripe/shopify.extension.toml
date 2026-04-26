@@ -1,9 +1,11 @@
+api_version = "2026-01"
+
 [[extensions]]
 name = "t:name"
 handle = "rb-refund-stripe"
-type = "admin_link"
+type = "ui_extension"
 uid = "feb60a10-ba9a-46b6-87eb-483e02247e84"
 
 [[extensions.targeting]]
-target = "admin.order-details.action.link"
-url = "https://rebbi-shirt-order.vercel.app/shopify/refund"
+module = "./src/ActionExtension.jsx"
+target = "admin.order-details.action.render"
