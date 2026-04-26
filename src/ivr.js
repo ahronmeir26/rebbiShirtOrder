@@ -54,6 +54,9 @@ const SHIPPING_FEE = 10;
 const DEFAULT_SUBMIT_SHOPIFY_ORDER = /^(1|true|yes|on)$/i.test(String(process.env.SHOPIFY_SUBMIT_SHOPIFY_ORDER || "").trim());
 const DEFAULT_TWILIO_PAY_CONNECTOR = String(process.env.TWILIO_PAY_CONNECTOR || "Stripe_Connector").trim() || "Stripe_Connector";
 const PENNY_CC_CHARGE_AMOUNT = 0.01;
+const GOOGLE_ADDRESS_VALIDATION_API_KEY = String(process.env.GOOGLE_ADDRESS_VALIDATION_API_KEY || process.env.GOOGLE_MAPS_API_KEY || "").trim();
+const GOOGLE_ADDRESS_VALIDATION_URL = "https://addressvalidation.googleapis.com/v1:validateAddress";
+const ACCEPTED_ADDRESS_GRANULARITIES = new Set(["PREMISE", "SUB_PREMISE"]);
 
 const categories = {
   1: { id: "mens", name: "mens" },
@@ -2561,6 +2564,131 @@ function shippingAddressFromSpeech(rawAddress, form, session) {
   };
 }
 
+function googlePostalAddressToShippingAddress(postalAddress, fallbackRaw) {
+  const lines = Array.isArray(postalAddress?.addressLines)
+    ? postalAddress.addressLines.map((line) => String(line || "").trim()).filter(Boolean)
+    : [];
+  const address1 = lines[0] || String(fallbackRaw || "").trim();
+  const address2 = lines.slice(1).join(", ") || undefined;
+  const countryCode = String(postalAddress?.regionCode || "US").trim() || "US";
+
+  if (!address1) {
+    return null;
+  }
+
+  return {
+    address1,
+    address2,
+    city: String(postalAddress?.locality || postalAddress?.sublocality || "").trim() || undefined,
+    provinceCode: String(postalAddress?.administrativeArea || "").trim() || undefined,
+    countryCode,
+    country: countryCode === "US" ? "United States" : countryCode,
+    zip: String(postalAddress?.postalCode || "").trim() || undefined
+  };
+}
+
+function summarizeGoogleAddressValidation(data) {
+  const result = data?.result && typeof data.result === "object" ? data.result : {};
+  const verdict = result.verdict && typeof result.verdict === "object" ? result.verdict : {};
+  const validationGranularity = String(verdict.validationGranularity || "").trim();
+  const geocodeGranularity = String(verdict.geocodeGranularity || "").trim();
+  const addressComplete = verdict.addressComplete === true;
+  const hasUnconfirmedComponents = verdict.hasUnconfirmedComponents === true;
+  const hasReplacedComponents = verdict.hasReplacedComponents === true;
+  const possibleNextAction = String(verdict.possibleNextAction || "").trim();
+  const formattedAddress = String(result.address?.formattedAddress || "").trim() || undefined;
+  const address = googlePostalAddressToShippingAddress(result.address?.postalAddress, formattedAddress);
+  const deliverable = Boolean(
+    address &&
+      addressComplete &&
+      ACCEPTED_ADDRESS_GRANULARITIES.has(validationGranularity) &&
+      !hasUnconfirmedComponents &&
+      possibleNextAction !== "FIX"
+  );
+
+  return {
+    provider: "google-address-validation",
+    deliverable,
+    address,
+    formattedAddress,
+    responseId: String(data?.responseId || "").trim() || undefined,
+    verdict: {
+      validationGranularity,
+      geocodeGranularity,
+      addressComplete,
+      hasUnconfirmedComponents,
+      hasInferredComponents: verdict.hasInferredComponents === true,
+      hasReplacedComponents,
+      hasSpellCorrectedComponents: verdict.hasSpellCorrectedComponents === true,
+      possibleNextAction: possibleNextAction || undefined
+    }
+  };
+}
+
+async function validateSpokenShippingAddress(rawAddress) {
+  const text = String(rawAddress || "").trim();
+  if (!text) {
+    return {
+      provider: "google-address-validation",
+      deliverable: false,
+      status: "empty"
+    };
+  }
+
+  if (!GOOGLE_ADDRESS_VALIDATION_API_KEY) {
+    return {
+      provider: "google-address-validation",
+      deliverable: false,
+      status: "not-configured",
+      error: "Missing GOOGLE_ADDRESS_VALIDATION_API_KEY or GOOGLE_MAPS_API_KEY."
+    };
+  }
+
+  const url = `${GOOGLE_ADDRESS_VALIDATION_URL}?key=${encodeURIComponent(GOOGLE_ADDRESS_VALIDATION_API_KEY)}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      address: {
+        regionCode: "US",
+        addressLines: [text]
+      },
+      enableUspsCass: true
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      provider: "google-address-validation",
+      deliverable: false,
+      status: "error",
+      error: String(data?.error?.message || response.statusText || "Address validation failed.").slice(0, 240)
+    };
+  }
+
+  return {
+    ...summarizeGoogleAddressValidation(data),
+    status: "checked"
+  };
+}
+
+function shippingAddressFromValidatedSpeech(rawAddress, form, session, validation) {
+  const shippingAddress = shippingAddressFromSpeech(rawAddress, form, session);
+  const now = new Date().toISOString();
+  return {
+    ...shippingAddress,
+    status: "verified",
+    verificationStatus: "verified",
+    address: validation.address,
+    formattedAddress: validation.formattedAddress,
+    validation,
+    updatedAt: now
+  };
+}
+
 function confirmShippingAddressForCall(session, callSid) {
   if (!session.shippingAddress || typeof session.shippingAddress !== "object") {
     return;
@@ -2961,6 +3089,18 @@ function shippingAddressSpeechResponse(baseUrl) {
     }),
     say("We did not hear an address."),
     redirect(baseUrl, "/api/twilio/order/address/spoken")
+  ]);
+}
+
+function shippingAddressValidationRetryResponse(baseUrl, validation) {
+  const status = String(validation?.status || "").trim();
+  const prompt = status === "not-configured" || status === "error"
+    ? "I could not verify that address right now. Please say the full shipping address again, including street address, city, state, and zip code."
+    : "I could not verify that as a real, complete shipping address. Please say the full shipping address again, including street address, city, state, and zip code.";
+
+  return twiml([
+    say(prompt),
+    twimlBody(shippingAddressSpeechResponse(baseUrl))
   ]);
 }
 
@@ -3599,7 +3739,7 @@ async function handleShippingAddressReview(req, res, baseUrl) {
       session.shippingAddress = {
         ...session.pendingShippingAddressLookup,
         source: session.pendingShippingAddressLookup.source || "shopify-phone",
-        status: session.pendingShippingAddressLookup.raw ? "needs-review" : "structured"
+        status: session.pendingShippingAddressLookup.status || (session.pendingShippingAddressLookup.raw ? "needs-review" : "structured")
       };
       confirmShippingAddressForCall(session, activeCallSid(form, session));
       delete session.pendingShippingAddressLookup;
@@ -3640,11 +3780,23 @@ async function handleShippingAddressSpoken(req, res, baseUrl) {
     return;
   }
 
-  session.shippingAddress = shippingAddressFromSpeech(spoken, form, session);
-  confirmShippingAddressForCall(session, activeCallSid(form, session));
-  delete session.pendingShippingAddressLookup;
+  const validation = await validateSpokenShippingAddress(spoken);
+  session.lastShippingAddressValidation = {
+    ...validation,
+    raw: spoken,
+    checkedAt: new Date().toISOString()
+  };
+
+  if (!validation.deliverable || !validation.address) {
+    await persistSessionState(key, session);
+    xml(res, 200, shippingAddressValidationRetryResponse(baseUrl, validation));
+    return;
+  }
+
+  session.pendingShippingAddressLookup = shippingAddressFromValidatedSpeech(spoken, form, session, validation);
+  delete session.lastShippingAddressValidation;
   await persistSessionState(key, session);
-  xml(res, 200, twiml([say("Shipping address saved. We will include it for staff review."), redirect(baseUrl, "/api/twilio/order/finalize")]));
+  xml(res, 200, shippingAddressReviewResponse(baseUrl, session));
 }
 
 async function handleShippingAddressPhone(req, res, baseUrl) {

@@ -540,6 +540,12 @@ async function createDraftOrder(orderRecord) {
   if (shippingAddress?.source) {
     customAttributes.push({ key: "shipping_address_source", value: String(shippingAddress.source) });
   }
+  if (shippingAddress?.verificationStatus) {
+    customAttributes.push({ key: "shipping_address_verification", value: String(shippingAddress.verificationStatus).slice(0, 255) });
+  }
+  if (shippingAddress?.formattedAddress) {
+    customAttributes.push({ key: "verified_shipping_address", value: String(shippingAddress.formattedAddress).slice(0, 255) });
+  }
   if (rawSpokenAddress) {
     customAttributes.push({ key: "spoken_shipping_address", value: rawSpokenAddress.slice(0, 255) });
   }
@@ -551,7 +557,9 @@ async function createDraftOrder(orderRecord) {
         "Created by IVR.",
         phone ? `Caller phone: ${phone}` : "",
         shippingAddress?.lookupPhone && shippingAddress.lookupPhone !== phone ? `Shipping lookup phone: ${shippingAddress.lookupPhone}` : "",
+        shippingAddress?.verificationStatus ? `Shipping address verification: ${shippingAddress.verificationStatus}` : "",
         addressLines.length ? `Shipping address:\n${addressLines.join("\n")}` : "",
+        shippingAddress?.formattedAddress ? `Verified formatted address: ${shippingAddress.formattedAddress}` : "",
         rawSpokenAddress ? `Spoken shipping address: ${rawSpokenAddress}` : "",
         discountCode ? `Discount code entered: ${discountCode}` : "",
         `Shipping fee: $${SHIPPING_FEE}`

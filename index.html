@@ -886,10 +886,11 @@
           : shipping.lookupPhone
             ? `Saved address lookup ${escapeHtml(formatPhone(shipping.lookupPhone))}`
             : "Saved address";
+        const verificationNote = shipping.verificationStatus === "verified" ? "<br>Verified real address" : "";
         const reviewNote = shipping.status === "needs-review" ? "<br>Needs staff review" : "";
         return `
           <p>${displayLines.map(escapeHtml).join("<br>")}</p>
-          <p>${source}${customer}${linkedPhone}${reviewNote}</p>
+          <p>${source}${customer}${linkedPhone}${verificationNote}${reviewNote}</p>
         `;
       }
 
